@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2, Lock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { SiteHeader } from "@/components/site-header";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,58 +30,70 @@ export default function LoginPage() {
         return;
       }
       const data = await res.json().catch(() => ({}));
-      setError(data.error || "Invalid password");
+      setError(data.error || "Contraseña incorrecta");
+      setPassword("");
     } catch {
-      setError("Network error");
+      setError("Error de red");
     } finally {
       setBusy(false);
-      setPassword("");
     }
   }
 
   return (
-    <div className="flex-1 flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4">
-      <form
-        onSubmit={submit}
-        className="bg-surface border border-border rounded-2xl p-8 w-full max-w-sm space-y-5"
-      >
-        <div className="text-center space-y-2">
-          <div className="text-4xl">🔒</div>
-          <h1 className="text-2xl font-bold">
-            <span className="text-accent">Doc</span>Drop
-          </h1>
-          <p className="text-muted text-sm">Enter the password to upload files.</p>
-        </div>
+    <>
+      <SiteHeader />
 
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          autoFocus
-          required
-          className="w-full bg-surface-light border border-border rounded-xl px-4 py-3 text-foreground outline-none focus:border-accent transition-colors"
-          placeholder="Password"
-        />
+      <main className="mx-auto flex w-full max-w-sm flex-1 items-center justify-center px-4 py-10 pb-safe">
+        <form onSubmit={submit} className="w-full rounded-2xl border border-border bg-card/70 p-6 sm:p-8">
+          <div className="text-center">
+            <span
+              aria-hidden
+              className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary/12 text-primary ring-1 ring-primary/20"
+            >
+              <Lock className="size-6" />
+            </span>
+            <h1 className="mt-4 text-xl font-semibold tracking-tight">Acceso restringido</h1>
+            <p className="mt-1.5 text-sm text-muted-foreground text-balance">
+              Introduce la contraseña para subir y gestionar ficheros.
+            </p>
+          </div>
 
-        {error && (
-          <p className="text-danger text-sm text-center bg-danger/10 border border-danger/20 rounded-xl p-2.5">
-            {error}
+          <div className="mt-6 space-y-2">
+            <Label htmlFor="password">Contraseña</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              autoFocus
+              required
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? "login-error" : undefined}
+              className="h-11"
+            />
+          </div>
+
+          {error && (
+            <p
+              id="login-error"
+              role="alert"
+              className="mt-3 rounded-xl border border-destructive/25 bg-destructive/5 p-2.5 text-center text-sm text-destructive"
+            >
+              {error}
+            </p>
+          )}
+
+          <Button type="submit" disabled={busy || !password} className="mt-5 h-11 w-full">
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            {busy ? "Comprobando…" : "Entrar"}
+          </Button>
+
+          <p className="mt-5 text-center text-xs text-muted-foreground text-balance">
+            Quien tenga un enlace de descarga puede seguir bajando ese fichero sin entrar.
           </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={busy || password.length === 0}
-          className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-all active:scale-95"
-        >
-          {busy ? "Checking…" : "Unlock"}
-        </button>
-
-        <p className="text-muted text-xs text-center">
-          Anyone with a share link can still download that file without logging in.
-        </p>
-      </form>
-    </div>
+        </form>
+      </main>
+    </>
   );
 }

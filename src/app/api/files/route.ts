@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { MAX_TOTAL_BYTES, isAvailable, listMeta, usedBytes } from "@/lib/store";
-import { requireSession } from "@/lib/auth";
+import { authRequired, requireSession } from "@/lib/auth";
 
 /**
  * GET /api/files — ficheros activos, del más reciente al más antiguo.
@@ -22,5 +22,7 @@ export async function GET() {
   return NextResponse.json({
     files,
     storage: { usedBytes: await usedBytes(), totalBytes: MAX_TOTAL_BYTES },
+    // Para que el panel sepa si debe ofrecer "cerrar sesión".
+    authEnabled: authRequired(),
   });
 }

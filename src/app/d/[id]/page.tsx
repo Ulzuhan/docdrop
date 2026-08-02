@@ -1,8 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { AlertTriangle, Clock, Download, Flame, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SiteHeader } from "@/components/site-header";
+import {
+  fileEmoji,
+  formatBytes,
+  formatDateTime,
+  formatRemaining,
+} from "@/lib/format";
 
 interface FileInfo {
   id: string;
@@ -15,37 +26,17 @@ interface FileInfo {
   maxDownloads: number;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleString();
-}
-
-function formatExpiry(ts: number, now: number): string {
-  const diff = ts - now;
-  if (diff <= 0) return "Expired";
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  if (hours > 24) return `${Math.floor(hours / 24)}d ${hours % 24}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
-}
-
 export default function DownloadPage() {
   const params = useParams();
   const id = params.id as string;
+
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  // Reloj en estado: leer Date.now() durante el render es impuro y dejaba la cuenta
-  // atrás congelada. El valor inicial nunca llega al HTML prerenderizado porque este
+  // Reloj en estado: leer Date.now() en el render es impuro y dejaba la cuenta
+  // atrás congelada. El valor inicial no llega al HTML prerenderizado porque este
   // bloque solo se pinta cuando ya hay fileInfo, que llega por fetch en el cliente.
   const [now, setNow] = useState(() => Date.now());
 
@@ -55,135 +46,171 @@ export default function DownloadPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchInfo() {
       try {
         const res = await fetch(`/api/info/${id}`);
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+
         if (!res.ok) {
-          const data = await res.json();
-          setError(data.error || "File not found");
+          setError(data.error || "Fichero no encontrado");
+          setReason(data.reason ?? null);
           return;
         }
-        setFileInfo(await res.json());
+        setFileInfo(data);
       } catch {
-        setError("Failed to load file info");
+        if (!cancelled) setError("No se pudo cargar la información del fichero");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    fetchInfo();
+
+    void fetchInfo();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
-  const handleDownload = async () => {
+  function download() {
     setDownloading(true);
-    try {
-      const link = document.createElement("a");
-      link.href = `/api/download/${id}`;
-      link.download = fileInfo?.originalName || "file";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } finally {
-      setTimeout(() => setDownloading(false), 1500);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
-        <div className="text-center space-y-3">
-          <div className="text-4xl animate-pulse">📡</div>
-          <p className="text-muted">Loading file info...</p>
-        </div>
-      </div>
-    );
+    // Navegación directa: deja que el navegador gestione la descarga (y permite
+    // reanudarla, porque el servidor admite peticiones Range).
+    window.location.href = `/api/download/${id}`;
+    setTimeout(() => setDownloading(false), 2500);
   }
 
-  if (error) {
-    return (
-      <div className="flex-1 flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
-        <div className="bg-surface border border-border rounded-2xl p-8 text-center max-w-md w-full mx-4 space-y-4">
-          <div className="text-5xl">💔</div>
-          <h2 className="text-xl font-bold text-foreground">File Not Available</h2>
-          <p className="text-muted">{error}</p>
-          <p className="text-muted text-sm">This file may have expired or reached its download limit.</p>
-          <Link
-            href="/"
-            className="inline-block bg-accent hover:bg-accent-hover text-white font-medium py-2.5 px-6 rounded-xl transition-all"
-          >
-            Upload a New File
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (!fileInfo) return null;
-
-  // `now` viene de un estado que se refresca cada 30s en vez de leer Date.now() durante
-  // el render: leer el reloj al renderizar es impuro y, además, dejaba la cuenta atrás
-  // congelada en el valor que tuviera al abrir la página.
-  const isExpired = fileInfo.expiresAt < now;
+  const expired = fileInfo ? fileInfo.expiresAt <= now : false;
 
   return (
-    <div className="flex-1 flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
-      <div className="bg-surface border border-border rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 space-y-6">
-        <div className="text-center space-y-3">
-          <div className="text-5xl">📄</div>
-          <h2 className="text-xl font-bold text-foreground break-all">
-            {fileInfo.originalName}
-          </h2>
-        </div>
+    <>
+      <SiteHeader />
 
-        <div className="bg-surface-light rounded-xl p-4 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted">Size</span>
-            <span className="text-foreground font-medium">{formatBytes(fileInfo.size)}</span>
+      <main className="mx-auto flex w-full max-w-md flex-1 items-center justify-center px-4 py-10 pb-safe sm:py-16">
+        {loading ? (
+          <div className="w-full space-y-4">
+            <Skeleton className="mx-auto size-16 rounded-2xl" />
+            <Skeleton className="mx-auto h-6 w-3/4" />
+            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-12 w-full rounded-xl" />
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted">Type</span>
-            <span className="text-foreground font-medium font-mono text-xs">{fileInfo.mimeType}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted">Uploaded</span>
-            <span className="text-foreground font-medium">{formatTime(fileInfo.uploadedAt)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted">Expires</span>
-            <span className={`font-medium ${isExpired ? "text-danger" : "text-success"}`}>
-              {isExpired ? "Expired" : formatExpiry(fileInfo.expiresAt, now)}
+        ) : error ? (
+          <div className="w-full rounded-2xl border border-border bg-card/70 p-8 text-center">
+            <span
+              aria-hidden
+              className={`mx-auto grid size-14 place-items-center rounded-2xl ring-1 ${
+                reason === "exhausted"
+                  ? "bg-warning/10 text-warning ring-warning/25"
+                  : "bg-destructive/10 text-destructive ring-destructive/25"
+              }`}
+            >
+              {reason === "exhausted" ? (
+                <Flame className="size-6" />
+              ) : (
+                <AlertTriangle className="size-6" />
+              )}
             </span>
+
+            <h1 className="mt-4 text-xl font-semibold tracking-tight">
+              {reason === "exhausted"
+                ? "Este fichero ya se consumió"
+                : reason === "expired"
+                  ? "Este enlace ha caducado"
+                  : "Fichero no disponible"}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground text-balance">
+              {reason
+                ? "Los ficheros se borran solos al caducar o al agotar sus descargas. Pide a quien te lo envió que vuelva a subirlo."
+                : error}
+            </p>
+
+            <Button render={<Link href="/" />} variant="outline" className="mt-6 h-11 w-full">
+              Ir a DocDrop
+            </Button>
           </div>
-          {fileInfo.maxDownloads > 0 && (
-            <div className="flex justify-between">
-              <span className="text-muted">Downloads</span>
-              <span className="text-foreground font-medium">
-                {fileInfo.downloadCount}/{fileInfo.maxDownloads}
+        ) : fileInfo ? (
+          <div className="w-full">
+            <div className="text-center">
+              <span aria-hidden className="text-5xl sm:text-6xl">
+                {fileEmoji(fileInfo.mimeType, fileInfo.originalName)}
               </span>
+              <h1
+                className="mt-4 text-xl font-semibold tracking-tight break-words text-balance sm:text-2xl"
+                title={fileInfo.originalName}
+              >
+                {fileInfo.originalName}
+              </h1>
+              <p className="mt-1 text-sm tabular-nums text-muted-foreground">
+                {formatBytes(fileInfo.size)}
+              </p>
             </div>
-          )}
-        </div>
 
-        {!isExpired ? (
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition-all active:scale-95 text-lg"
-          >
-            {downloading ? "⬇️ Downloading..." : "⬇️ Download File"}
-          </button>
-        ) : (
-          <div className="text-center text-danger font-medium">
-            This file has expired and is no longer available.
+            <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4 sm:p-5">
+              <dl className="space-y-3 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-muted-foreground">Tipo</dt>
+                  <dd className="truncate font-mono text-xs">{fileInfo.mimeType}</dd>
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-muted-foreground">Subido</dt>
+                  <dd className="text-right">{formatDateTime(fileInfo.uploadedAt)}</dd>
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="flex items-center gap-1.5 text-muted-foreground">
+                    <Clock className="size-3.5" aria-hidden />
+                    Caduca
+                  </dt>
+                  <dd className={expired ? "font-medium text-destructive" : "font-medium text-success"}>
+                    {expired ? "caducado" : `en ${formatRemaining(fileInfo.expiresAt, now)}`}
+                  </dd>
+                </div>
+                {fileInfo.maxDownloads > 0 && (
+                  <>
+                    <Separator />
+                    <div className="flex items-center justify-between gap-4">
+                      <dt className="text-muted-foreground">Descargas</dt>
+                      <dd className="tabular-nums">
+                        {fileInfo.downloadCount} de {fileInfo.maxDownloads}
+                      </dd>
+                    </div>
+                  </>
+                )}
+              </dl>
+            </div>
+
+            {expired ? (
+              <p className="mt-6 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-center text-sm text-destructive">
+                Este fichero ha caducado y ya no está disponible.
+              </p>
+            ) : (
+              <Button size="lg" className="mt-6 h-12 w-full text-base" onClick={download}>
+                {downloading ? (
+                  <Loader2 className="size-5 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="size-5" aria-hidden />
+                )}
+                {downloading ? "Empezando…" : "Descargar"}
+              </Button>
+            )}
+
+            {fileInfo.maxDownloads > 0 && !expired && (
+              <p className="mt-3 text-center text-xs text-muted-foreground">
+                Quedan {fileInfo.maxDownloads - fileInfo.downloadCount} descargas antes de que
+                se borre.
+              </p>
+            )}
+
+            <p className="mt-8 text-center text-xs text-muted-foreground">
+              <Link href="/" className="underline-offset-4 hover:text-foreground hover:underline">
+                Comparte tus propios ficheros con DocDrop
+              </Link>
+            </p>
           </div>
-        )}
-
-        <Link
-          href="/"
-          className="block text-center text-muted hover:text-foreground transition-colors text-sm"
-        >
-          Upload your own file →
-        </Link>
-      </div>
-    </div>
+        ) : null}
+      </main>
+    </>
   );
 }

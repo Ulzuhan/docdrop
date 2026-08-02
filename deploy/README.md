@@ -18,7 +18,7 @@ Añadiendo una contraseña al fichero de entorno el reparto pasa a ser:
 
 | Ruta | Con contraseña configurada |
 |---|---|
-| `/`, `/api/upload`, `/api/files`, `/api/cleanup` | Requiere contraseña |
+| `/`, `/api/upload`, `/api/files`, `/api/files/[id]`, `/api/cleanup` | Requiere contraseña |
 | `/d/[id]`, `/api/info/[id]`, `/api/download/[id]` | Público (el secreto es el id de 72 bits) |
 
 ```bash
