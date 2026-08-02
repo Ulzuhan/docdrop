@@ -59,6 +59,7 @@ export default function Home() {
   const [ttl, setTtl] = useState(24);
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
+  const [storage, setStorage] = useState<{ usedBytes: number; totalBytes: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Contador de recargas: al incrementarlo se vuelve a pedir la lista. Evita exponer
@@ -72,10 +73,18 @@ export default function Home() {
     async function load() {
       try {
         const res = await fetch("/api/files");
+        // Sesión caducada mientras la pestaña estaba abierta: al login.
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
         if (!res.ok) return;
         const data = await res.json();
         // Sin esta guarda se hacía setState después de desmontar el componente.
-        if (!cancelled) setFiles(data.files);
+        if (!cancelled) {
+          setFiles(data.files);
+          setStorage(data.storage ?? null);
+        }
       } catch {
       } finally {
         if (!cancelled) setLoadingFiles(false);
@@ -184,13 +193,27 @@ export default function Home() {
   return (
     <div className="flex-1 flex flex-col items-center px-4 py-8 sm:py-12 max-w-2xl mx-auto w-full">
       {/* Logo / Brand */}
-      <div className="text-center mb-8">
+      <div className="text-center mb-8 w-full relative">
         <h1 className="text-4xl sm:text-5xl font-bold mb-2">
           <span className="text-accent">Doc</span>Drop
         </h1>
         <p className="text-muted text-sm sm:text-base">
           Upload a file, share the link. It self-destructs. 🔥
         </p>
+        {storage && (
+          <p className="text-muted text-xs mt-2">
+            {formatBytes(storage.usedBytes)} / {formatBytes(storage.totalBytes)} used
+          </p>
+        )}
+        <button
+          onClick={async () => {
+            await fetch("/api/auth/logout", { method: "POST" });
+            window.location.href = "/login";
+          }}
+          className="absolute top-0 right-0 text-muted hover:text-foreground text-sm transition-colors"
+        >
+          Log out
+        </button>
       </div>
 
       {/* Upload Area */}

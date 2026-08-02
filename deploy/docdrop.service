@@ -1,0 +1,80 @@
+[Unit]
+Description=DocDrop — compartición de ficheros con enlaces temporales
+Documentation=file:///opt/docdrop/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ── Identidad ────────────────────────────────────────────────────────
+# Usuario propio SIN pertenencia al grupo docker. Esto es lo que impide que un
+# compromiso de la aplicación escale a root: el usuario ulzuhan está en el grupo
+# docker, y desde ahí `docker run -v /:/host` da control total de la máquina.
+User=docdrop
+Group=docdrop
+
+WorkingDirectory=/opt/docdrop
+EnvironmentFile=/etc/docdrop.env
+Environment=NODE_ENV=production
+Environment=PORT=3010
+# Escucha solo en loopback: la única vía de entrada es el proxy de Tailscale.
+Environment=HOSTNAME=127.0.0.1
+Environment=DOCDROP_DATA_DIR=/var/lib/docdrop
+
+ExecStart=/usr/local/bin/node server.js
+Restart=on-failure
+RestartSec=5s
+
+# ── Aislamiento del sistema de ficheros ──────────────────────────────
+# Todo el sistema en solo lectura salvo el directorio de datos. Ni siquiera puede
+# reescribir su propio código en /opt/docdrop (propiedad de root).
+ProtectSystem=strict
+ReadWritePaths=/var/lib/docdrop
+# Sin acceso a /home: ahí están las claves SSH, los tokens y el resto de proyectos.
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+
+# ── Privilegios ──────────────────────────────────────────────────────
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+PrivateUsers=yes
+
+# ── Núcleo ───────────────────────────────────────────────────────────
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+
+# ── Llamadas al sistema ──────────────────────────────────────────────
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @mount @swap @reboot
+# Nota: no se activa MemoryDenyWriteExecute porque el JIT de V8 necesita páginas
+# ejecutables y el proceso no arrancaría.
+
+# ── Red ──────────────────────────────────────────────────────────────
+# Solo IPv4/IPv6/Unix; sin sockets raw ni netlink.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# (IPAddressDeny no se usa: este systemd está compilado sin BPF_FRAMEWORK y la
+# directiva no tendría efecto. La contención de red la da escuchar solo en loopback.)
+
+# ── Recursos: que un abuso no tumbe la máquina entera ────────────────
+MemoryMax=1G
+TasksMax=256
+LimitNOFILE=8192
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

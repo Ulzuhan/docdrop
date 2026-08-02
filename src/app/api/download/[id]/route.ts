@@ -9,6 +9,7 @@ import {
   isValidId,
   retireIfExhausted,
 } from "@/lib/store";
+import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 const GONE = { expired: "File expired", exhausted: "Max downloads reached" } as const;
 
@@ -24,6 +25,12 @@ const GONE = { expired: "File expired", exhausted: "Max downloads reached" } as 
  *  - Content-Length sale del fichero real, no del tamaño guardado en meta.json.
  */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/download/[id]">) {
+  // Ruta pública (el secreto es el id), pero con freno para que nadie use el servicio
+  // como cañón de ancho de banda ni intente enumerar ids a lo bruto. El límite es
+  // holgado porque una descarga con Range genera varias peticiones.
+  const limit = rateLimit(`download:${clientIp(request)}`, 240, 60_000);
+  if (!limit.allowed) return tooManyRequests(limit);
+
   const { id } = await ctx.params;
 
   if (!isValidId(id)) {

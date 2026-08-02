@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { isValidId, readMeta, unavailableReason } from "@/lib/store";
+import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 const GONE = {
   expired: "File expired",
   exhausted: "Max downloads reached",
 } as const;
 
-/** GET /api/info/[id] — metadatos del fichero, sin consumir una descarga. */
-export async function GET(_request: Request, ctx: RouteContext<"/api/info/[id]">) {
+/** GET /api/info/[id] — metadatos del fichero, sin consumir una descarga. Público. */
+export async function GET(request: Request, ctx: RouteContext<"/api/info/[id]">) {
+  const limit = rateLimit(`info:${clientIp(request)}`, 120, 60_000);
+  if (!limit.allowed) return tooManyRequests(limit);
+
   const { id } = await ctx.params;
 
   if (!isValidId(id)) {

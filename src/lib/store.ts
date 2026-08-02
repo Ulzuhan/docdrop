@@ -13,9 +13,21 @@ import { existsSync } from "fs";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
 import { join } from "path";
 
-export const UPLOAD_DIR = join(process.cwd(), ".docdrop-uploads");
+/**
+ * Directorio de datos. Configurable porque en producción el servicio corre con un
+ * usuario dedicado y guarda en /var/lib/docdrop, fuera del directorio del código.
+ */
+export const UPLOAD_DIR =
+  process.env.DOCDROP_DATA_DIR?.trim() || join(process.cwd(), ".docdrop-uploads");
 
-export const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB
+function envBytes(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+export const MAX_FILE_SIZE = envBytes("DOCDROP_MAX_FILE_BYTES", 10 * 1024 * 1024 * 1024); // 10 GB
+/** Tope de ocupación total: sin esto, subir hasta llenar el disco tumba la máquina. */
+export const MAX_TOTAL_BYTES = envBytes("DOCDROP_MAX_TOTAL_BYTES", 20 * 1024 * 1024 * 1024); // 20 GB
 export const MIN_TTL_HOURS = 1;
 export const MAX_TTL_HOURS = 24 * 30; // 30 días
 export const MAX_DOWNLOAD_LIMIT = 10_000;
@@ -133,6 +145,28 @@ export async function burn(id: string, reason: "expired" | "exhausted"): Promise
   meta.burnedAt = Date.now();
   meta.burnedReason = reason;
   await writeMeta(meta);
+}
+
+/** Bytes ocupados ahora mismo por los ficheros vivos (no cuenta las lápidas). */
+export async function usedBytes(): Promise<number> {
+  if (!existsSync(UPLOAD_DIR)) return 0;
+  let ids: string[];
+  try {
+    ids = await readdir(UPLOAD_DIR);
+  } catch {
+    return 0;
+  }
+
+  let total = 0;
+  for (const id of ids) {
+    if (!isValidId(id)) continue;
+    try {
+      total += (await stat(blobPath(id))).size;
+    } catch {
+      // Sin blob (lápida o subida a medias): no ocupa.
+    }
+  }
+  return total;
 }
 
 export async function listMeta(): Promise<FileMeta[]> {

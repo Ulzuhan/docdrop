@@ -6,6 +6,7 @@ import { pipeline } from "stream/promises";
 import type { ReadableStream as NodeWebReadableStream } from "stream/web";
 import {
   MAX_FILE_SIZE,
+  MAX_TOTAL_BYTES,
   blobPath,
   clampMaxDownloads,
   clampTtlHours,
@@ -13,9 +14,12 @@ import {
   deleteEntry,
   generateId,
   sanitizeFilename,
+  usedBytes,
   writeMeta,
   type FileMeta,
 } from "@/lib/store";
+import { requireSession } from "@/lib/auth";
+import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
  * POST /api/upload — el cuerpo de la petición ES el fichero (no multipart).
@@ -31,6 +35,14 @@ import {
  * que la memoria usada es constante e independiente del tamaño del fichero.
  */
 export async function POST(request: NextRequest) {
+  // Subir exige sesión: expuesto a internet, un endpoint de subida abierto es
+  // alojamiento anónimo gratis y una forma trivial de llenar el disco.
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
+
+  const limit = rateLimit(`upload:${clientIp(request)}`, 30, 60 * 60 * 1000);
+  if (!limit.allowed) return tooManyRequests(limit);
+
   if (!request.body) {
     return NextResponse.json({ error: "Empty request body" }, { status: 400 });
   }
@@ -57,6 +69,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File too large. Max 10GB." }, { status: 413 });
   }
 
+  // Cuota global: impide que el almacén crezca hasta llenar el disco de la máquina,
+  // que se llevaría por delante al resto de servicios del equipo.
+  const used = await usedBytes();
+  const budget = MAX_TOTAL_BYTES - used;
+  if (budget <= 0) {
+    return NextResponse.json(
+      { error: "Storage full. Delete or wait for files to expire." },
+      { status: 507 }
+    );
+  }
+  if (Number.isFinite(declared) && declared > budget) {
+    return NextResponse.json(
+      { error: "Not enough storage left for this file." },
+      { status: 507 }
+    );
+  }
+
+  // El corte real se hace sobre lo que llegue de verdad, no sobre lo declarado.
+  const hardCap = Math.min(MAX_FILE_SIZE, budget);
+
   const id = generateId();
 
   try {
@@ -68,7 +100,7 @@ export async function POST(request: NextRequest) {
     const limiter = new Transform({
       transform(chunk: Buffer, _enc, cb) {
         written += chunk.length;
-        if (written > MAX_FILE_SIZE) {
+        if (written > hardCap) {
           cb(Object.assign(new Error("File too large"), { code: "TOO_LARGE" }));
           return;
         }
