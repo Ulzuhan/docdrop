@@ -61,33 +61,40 @@ export default function Home() {
   const [loadingFiles, setLoadingFiles] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchFiles = useCallback(async () => {
-    try {
-      const res = await fetch("/api/files");
-      if (res.ok) {
-        const data = await res.json();
-        setFiles(data.files);
-      }
-    } catch {}
-    setLoadingFiles(false);
-  }, []);
+  // Contador de recargas: al incrementarlo se vuelve a pedir la lista. Evita exponer
+  // una función que haga setState de forma síncrona dentro del efecto.
+  const [reloadToken, setReloadToken] = useState(0);
+  const fetchFiles = useCallback(() => setReloadToken((n) => n + 1), []);
 
   useEffect(() => {
-    fetchFiles();
-    const interval = setInterval(fetchFiles, 10000); // Refresh every 10s
-    return () => clearInterval(interval);
-  }, [fetchFiles]);
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const res = await fetch("/api/files");
+        if (!res.ok) return;
+        const data = await res.json();
+        // Sin esta guarda se hacía setState después de desmontar el componente.
+        if (!cancelled) setFiles(data.files);
+      } catch {
+      } finally {
+        if (!cancelled) setLoadingFiles(false);
+      }
+    }
+
+    void load();
+    const interval = setInterval(load, 10000); // refresco cada 10s
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [reloadToken]);
 
   const uploadFile = useCallback(async (file: File) => {
     setUploading(true);
     setProgress(0);
     setError(null);
     setResult(null);
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("ttlHours", String(ttl));
-    formData.append("maxDownloads", "0");
 
     try {
       const xhr = new XMLHttpRequest();
@@ -99,22 +106,44 @@ export default function Home() {
       });
 
       const response = await new Promise<UploadResult>((resolve, reject) => {
+        const fail = (fallback: string) => {
+          try {
+            reject(new Error(JSON.parse(xhr.responseText).error || fallback));
+          } catch {
+            reject(new Error(fallback));
+          }
+        };
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(JSON.parse(xhr.responseText));
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new Error("Malformed server response"));
+            }
           } else {
-            reject(new Error(JSON.parse(xhr.responseText).error || "Upload failed"));
+            fail(`Upload failed (${xhr.status})`);
           }
         };
         xhr.onerror = () => reject(new Error("Network error"));
+        xhr.onabort = () => reject(new Error("Upload cancelled"));
+
+        // El fichero se envía como cuerpo crudo, no como multipart: así el servidor
+        // puede escribirlo a disco por streaming en vez de cargarlo entero en memoria.
         xhr.open("POST", "/api/upload");
-        xhr.send(formData);
+        xhr.setRequestHeader("x-filename", encodeURIComponent(file.name));
+        xhr.setRequestHeader("x-ttl-hours", String(ttl));
+        xhr.setRequestHeader("x-max-downloads", "0");
+        xhr.setRequestHeader(
+          "Content-Type",
+          file.type || "application/octet-stream"
+        );
+        xhr.send(file);
       });
 
       setResult(response);
       fetchFiles(); // Refresh file list
-    } catch (err: any) {
-      setError(err.message || "Upload failed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
     }

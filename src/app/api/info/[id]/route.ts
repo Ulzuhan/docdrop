@@ -1,49 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import { join } from "path";
+import { NextResponse } from "next/server";
+import { isValidId, readMeta, unavailableReason } from "@/lib/store";
 
-const UPLOAD_DIR = join(process.cwd(), ".docdrop-uploads");
+const GONE = {
+  expired: "File expired",
+  exhausted: "Max downloads reached",
+} as const;
 
-interface FileMeta {
-  id: string;
-  originalName: string;
-  size: number;
-  mimeType: string;
-  uploadedAt: number;
-  expiresAt: number;
-  downloadCount: number;
-  maxDownloads: number;
-}
+/** GET /api/info/[id] — metadatos del fichero, sin consumir una descarga. */
+export async function GET(_request: Request, ctx: RouteContext<"/api/info/[id]">) {
+  const { id } = await ctx.params;
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-
-  try {
-    const raw = await readFile(join(UPLOAD_DIR, id, "meta.json"), "utf-8");
-    const meta: FileMeta = JSON.parse(raw);
-
-    if (meta.expiresAt < Date.now()) {
-      return NextResponse.json({ error: "File expired" }, { status: 410 });
-    }
-
-    if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
-      return NextResponse.json({ error: "Max downloads reached" }, { status: 410 });
-    }
-
-    return NextResponse.json({
-      id: meta.id,
-      originalName: meta.originalName,
-      size: meta.size,
-      mimeType: meta.mimeType,
-      uploadedAt: meta.uploadedAt,
-      expiresAt: meta.expiresAt,
-      downloadCount: meta.downloadCount,
-      maxDownloads: meta.maxDownloads,
-    });
-  } catch {
+  if (!isValidId(id)) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
+
+  const meta = await readMeta(id);
+  if (!meta) {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
+  }
+
+  const reason = unavailableReason(meta);
+  if (reason) {
+    return NextResponse.json({ error: GONE[reason], reason }, { status: 410 });
+  }
+
+  return NextResponse.json(meta);
 }

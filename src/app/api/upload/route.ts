@@ -1,131 +1,121 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import { existsSync } from "fs";
-import { join } from "path";
-import { randomBytes } from "crypto";
+import { createWriteStream } from "fs";
+import { stat } from "fs/promises";
+import { Readable, Transform } from "stream";
+import { pipeline } from "stream/promises";
+import type { ReadableStream as NodeWebReadableStream } from "stream/web";
+import {
+  MAX_FILE_SIZE,
+  blobPath,
+  clampMaxDownloads,
+  clampTtlHours,
+  createEntryDir,
+  deleteEntry,
+  generateId,
+  sanitizeFilename,
+  writeMeta,
+  type FileMeta,
+} from "@/lib/store";
 
-const UPLOAD_DIR = join(process.cwd(), ".docdrop-uploads");
-
-// In-memory file metadata store (resets on server restart, files on disk persist)
-// For a production app, use a DB — but for this homelab tool, this is perfect
-interface FileMeta {
-  id: string;
-  originalName: string;
-  size: number;
-  mimeType: string;
-  uploadedAt: number;
-  expiresAt: number;
-  downloadCount: number;
-  maxDownloads: number; // 0 = unlimited
-}
-
-const fileStore = new Map<string, FileMeta>();
-
-// Cleanup expired files on startup
-async function cleanupExpired() {
-  if (!existsSync(UPLOAD_DIR)) return;
-  const { readdir, unlink, readFile } = await import("fs/promises");
-  const now = Date.now();
-
-  try {
-    const dirs = await readdir(UPLOAD_DIR);
-    for (const id of dirs) {
-      const metaPath = join(UPLOAD_DIR, id, "meta.json");
-      try {
-        const raw = await readFile(metaPath, "utf-8");
-        const meta: FileMeta = JSON.parse(raw);
-        if (meta.expiresAt < now || (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads)) {
-          // Expired or max downloads reached — delete
-          const filePath = join(UPLOAD_DIR, id, "file");
-          try { await unlink(filePath); } catch {}
-          try { await unlink(metaPath); } catch {}
-          try { await rmdir(join(UPLOAD_DIR, id)); } catch {}
-          fileStore.delete(id);
-        } else {
-          fileStore.set(id, meta);
-        }
-      } catch {
-        // No meta file, try to clean up orphaned dirs
-        try { await rmdir(join(UPLOAD_DIR, id)); } catch {}
-      }
-    }
-  } catch {}
-}
-
-async function rmdir(path: string) {
-  const { rmdir: rmdirFn } = await import("fs/promises");
-  return rmdirFn(path);
-}
-
-// Run cleanup on module load
-cleanupExpired();
-
+/**
+ * POST /api/upload — el cuerpo de la petición ES el fichero (no multipart).
+ *
+ * Metadatos por cabecera:
+ *   x-filename       nombre original, percent-encoded (UTF-8)
+ *   x-ttl-hours      horas hasta la autodestrucción (1..720)
+ *   x-max-downloads  0 = ilimitado
+ *
+ * Antes esto usaba request.formData(), que materializa el fichero entero en memoria:
+ * con el límite anunciado de 10 GB el proceso moría mucho antes de llegar (el tope de
+ * Buffer en Node ronda los 2 GB). Ahora el cuerpo se canaliza a disco por streaming, así
+ * que la memoria usada es constante e independiente del tamaño del fichero.
+ */
 export async function POST(request: NextRequest) {
+  if (!request.body) {
+    return NextResponse.json({ error: "Empty request body" }, { status: 400 });
+  }
+
+  const rawName = request.headers.get("x-filename");
+  if (!rawName) {
+    return NextResponse.json({ error: "Missing x-filename header" }, { status: 400 });
+  }
+
+  let originalName: string;
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const ttlHours = parseInt(formData.get("ttlHours") as string) || 24;
-    const maxDownloads = parseInt(formData.get("maxDownloads") as string) || 0;
+    originalName = sanitizeFilename(decodeURIComponent(rawName));
+  } catch {
+    return NextResponse.json({ error: "Malformed x-filename header" }, { status: 400 });
+  }
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  const ttlHours = clampTtlHours(request.headers.get("x-ttl-hours"));
+  const maxDownloads = clampMaxDownloads(request.headers.get("x-max-downloads"));
+
+  // Rechazo temprano si el cliente ya declara un tamaño excesivo, para no escribir
+  // gigabytes en disco antes de darnos cuenta.
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_FILE_SIZE) {
+    return NextResponse.json({ error: "File too large. Max 10GB." }, { status: 413 });
+  }
+
+  const id = generateId();
+
+  try {
+    await createEntryDir(id);
+
+    // Corta la subida en cuanto se pasa del límite, aunque el cliente haya mentido en
+    // Content-Length o no lo haya enviado.
+    let written = 0;
+    const limiter = new Transform({
+      transform(chunk: Buffer, _enc, cb) {
+        written += chunk.length;
+        if (written > MAX_FILE_SIZE) {
+          cb(Object.assign(new Error("File too large"), { code: "TOO_LARGE" }));
+          return;
+        }
+        cb(null, chunk);
+      },
+    });
+
+    const source = Readable.fromWeb(request.body as unknown as NodeWebReadableStream);
+    await pipeline(source, limiter, createWriteStream(blobPath(id)));
+
+    if (written === 0) {
+      await deleteEntry(id);
+      return NextResponse.json({ error: "Empty file" }, { status: 400 });
     }
 
-    // Max 10GB
-    if (file.size > 10 * 1024 * 1024 * 1024) {
-      return NextResponse.json({ error: "File too large. Max 10GB." }, { status: 413 });
-    }
+    // El tamaño se toma del disco, no de lo que dijera el cliente.
+    const size = (await stat(blobPath(id))).size;
 
-    const id = randomBytes(6).toString("hex");
-    const fileDir = join(UPLOAD_DIR, id);
-
-    // Create directory
-    await mkdir(fileDir, { recursive: true });
-
-    // Save file
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(join(fileDir, "file"), buffer);
-
-    // Create metadata
+    const now = Date.now();
     const meta: FileMeta = {
       id,
-      originalName: file.name,
-      size: file.size,
-      mimeType: file.type || "application/octet-stream",
-      uploadedAt: Date.now(),
-      expiresAt: Date.now() + ttlHours * 60 * 60 * 1000,
+      originalName,
+      size,
+      mimeType: request.headers.get("content-type") || "application/octet-stream",
+      uploadedAt: now,
+      expiresAt: now + ttlHours * 60 * 60 * 1000,
       downloadCount: 0,
       maxDownloads,
     };
+    await writeMeta(meta);
 
-    await writeFile(join(fileDir, "meta.json"), JSON.stringify(meta, null, 2));
-    fileStore.set(id, meta);
-
-    // Return the shareable link code
     return NextResponse.json({
       id,
       originalName: meta.originalName,
       size: meta.size,
       expiresAt: meta.expiresAt,
+      maxDownloads: meta.maxDownloads,
       downloadUrl: `/d/${id}`,
     });
   } catch (error) {
+    // Sin esto, una subida interrumpida dejaba el directorio a medias para siempre.
+    await deleteEntry(id).catch(() => {});
+
+    if ((error as { code?: string }).code === "TOO_LARGE") {
+      return NextResponse.json({ error: "File too large. Max 10GB." }, { status: 413 });
+    }
     console.error("Upload error:", error);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
-}
-
-export async function GET() {
-  // List active files (for admin/cleanup purposes)
-  const files = Array.from(fileStore.values())
-    .filter((f) => f.expiresAt > Date.now())
-    .map((f) => ({
-      id: f.id,
-      originalName: f.originalName,
-      size: f.size,
-      uploadedAt: f.uploadedAt,
-      expiresAt: f.expiresAt,
-      downloadCount: f.downloadCount,
-    }));
-  return NextResponse.json({ files });
 }

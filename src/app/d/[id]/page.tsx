@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 
 interface FileInfo {
   id: string;
@@ -26,8 +27,8 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
-function formatExpiry(ts: number): string {
-  const diff = ts - Date.now();
+function formatExpiry(ts: number, now: number): string {
+  const diff = ts - now;
   if (diff <= 0) return "Expired";
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -43,6 +44,15 @@ export default function DownloadPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  // Reloj en estado: leer Date.now() durante el render es impuro y dejaba la cuenta
+  // atrás congelada. El valor inicial nunca llega al HTML prerenderizado porque este
+  // bloque solo se pinta cuando ya hay fileInfo, que llega por fetch en el cliente.
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(tick);
+  }, []);
 
   useEffect(() => {
     async function fetchInfo() {
@@ -96,12 +106,12 @@ export default function DownloadPage() {
           <h2 className="text-xl font-bold text-foreground">File Not Available</h2>
           <p className="text-muted">{error}</p>
           <p className="text-muted text-sm">This file may have expired or reached its download limit.</p>
-          <a
+          <Link
             href="/"
             className="inline-block bg-accent hover:bg-accent-hover text-white font-medium py-2.5 px-6 rounded-xl transition-all"
           >
             Upload a New File
-          </a>
+          </Link>
         </div>
       </div>
     );
@@ -109,7 +119,10 @@ export default function DownloadPage() {
 
   if (!fileInfo) return null;
 
-  const isExpired = fileInfo.expiresAt < Date.now();
+  // `now` viene de un estado que se refresca cada 30s en vez de leer Date.now() durante
+  // el render: leer el reloj al renderizar es impuro y, además, dejaba la cuenta atrás
+  // congelada en el valor que tuviera al abrir la página.
+  const isExpired = fileInfo.expiresAt < now;
 
   return (
     <div className="flex-1 flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
@@ -137,7 +150,7 @@ export default function DownloadPage() {
           <div className="flex justify-between">
             <span className="text-muted">Expires</span>
             <span className={`font-medium ${isExpired ? "text-danger" : "text-success"}`}>
-              {isExpired ? "Expired" : formatExpiry(fileInfo.expiresAt)}
+              {isExpired ? "Expired" : formatExpiry(fileInfo.expiresAt, now)}
             </span>
           </div>
           {fileInfo.maxDownloads > 0 && (
@@ -164,12 +177,12 @@ export default function DownloadPage() {
           </div>
         )}
 
-        <a
+        <Link
           href="/"
           className="block text-center text-muted hover:text-foreground transition-colors text-sm"
         >
           Upload your own file →
-        </a>
+        </Link>
       </div>
     </div>
   );
