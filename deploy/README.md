@@ -1,25 +1,40 @@
 # Despliegue de DocDrop
 
-Servicio expuesto a internet mediante Tailscale Funnel. Todo lo que sigue existe
-porque Funnel **no** aporta WAF, rate limiting ni filtrado: lo que proteja el
-servicio tiene que estar en la aplicación y en el aislamiento del proceso.
+El servicio escucha solo en `127.0.0.1`. Para usarlo desde fuera se levanta un
+túnel temporal y se cierra al terminar:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:3010   # Ctrl-C para cerrarlo
+```
 
 ## Modelo de acceso
 
-| Ruta | Acceso |
+Por defecto el servicio arranca **ABIERTO**: quien llegue a él puede subir ficheros
+y ver la lista completa. Es lo razonable en red privada o tras un túnel que se abre
+y se cierra a mano — pero significa que mientras el túnel esté levantado, cualquiera
+con esa URL tiene acceso de escritura.
+
+Añadiendo una contraseña al fichero de entorno el reparto pasa a ser:
+
+| Ruta | Con contraseña configurada |
 |---|---|
-| `/`, `/api/upload`, `/api/files`, `/api/cleanup` | Contraseña |
+| `/`, `/api/upload`, `/api/files`, `/api/cleanup` | Requiere contraseña |
 | `/d/[id]`, `/api/info/[id]`, `/api/download/[id]` | Público (el secreto es el id de 72 bits) |
 
-Así se comparte un fichero con alguien de fuera sin darle credenciales, pero nadie
-puede subir ni enumerar lo que hay.
+```bash
+npm run set-password              # imprime las dos líneas
+sudo nano /etc/docdrop.env        # descomenta y pégalas
+sudo systemctl restart docdrop
+```
+
+El modo en el que ha arrancado queda registrado en el log:
+`journalctl -u docdrop | grep modo`.
 
 ## Instalación
 
 ```bash
 npm run build
 sudo ./deploy/install.sh          # crea el usuario, despliega y arranca
-tailscale funnel --bg --https=8443 http://127.0.0.1:3010
 ```
 
 `install.sh` es idempotente: relanzarlo despliega una versión nueva conservando
@@ -61,17 +76,10 @@ Configurables por variable de entorno en `/etc/docdrop.env`:
 | `DOCDROP_DATA_DIR` | `/var/lib/docdrop` | Dónde viven los ficheros |
 
 Rate limiting por IP (en memoria): 5 intentos de login cada 15 min, 30 subidas por
-hora, 240 descargas por minuto. La IP se lee de `X-Forwarded-For`, que Tailscale
-**sobrescribe** con la real (comprobado); no se usa `X-Real-Ip`, que Tailscale deja
-pasar tal cual y el cliente puede falsificar.
-
-## Cambiar la contraseña
-
-```bash
-npm run set-password              # o: npm run set-password 'mi contraseña'
-sudo nano /etc/docdrop.env        # pega las dos líneas
-sudo systemctl restart docdrop
-```
+hora, 240 descargas por minuto. La IP sale del último valor de `X-Forwarded-For`,
+que tanto Tailscale como Cloudflare sobrescriben con la real (comprobado con el
+proxy de Tailscale). No se usa `X-Real-Ip`: Tailscale la deja pasar sin filtrar y
+el cliente puede inventarla para esquivar el límite.
 
 Cambiar `DOCDROP_SESSION_SECRET` invalida todas las sesiones abiertas.
 
@@ -89,6 +97,5 @@ curl -X POST -b "docdrop_session=<cookie>" http://127.0.0.1:3010/api/cleanup
 ```bash
 systemctl status docdrop
 journalctl -u docdrop -f
-tailscale funnel status
-tailscale funnel --https=8443 off     # dejar de publicarlo en internet
+ss -tlnp | grep 3010                  # confirmar que solo escucha en loopback
 ```

@@ -47,20 +47,28 @@ if id -nG "$SERVICE_USER" | tr ' ' '\n' | grep -qx docker; then
   exit 1
 fi
 
-echo "==> Credenciales ($ENV_FILE)"
+echo "==> Configuración ($ENV_FILE)"
 if [[ -f "$ENV_FILE" ]]; then
   echo "    ya existe, se conserva"
 else
-  CREDS="$("$NODE_BIN" "$SRC_DIR/scripts/set-password.mjs")"
-  printf '%s\n' "$CREDS" | grep '^DOCDROP_' > "$ENV_FILE"
-  echo ""
-  printf '%s\n' "$CREDS" | grep -A1 'Contraseña'
-  echo ""
-  echo "    ^^^ GUARDA ESA CONTRASEÑA AHORA: no se vuelve a mostrar."
-  echo ""
+  # Sin contraseña: el servicio arranca abierto, pensado para uso en red privada o
+  # tras un túnel temporal. Para protegerlo basta con añadir aquí las dos líneas
+  # que imprime `npm run set-password` y reiniciar.
+  cat > "$ENV_FILE" <<'ENVEOF'
+# Límites de almacenamiento (bytes)
+DOCDROP_MAX_FILE_BYTES=10737418240
+DOCDROP_MAX_TOTAL_BYTES=21474836480
+
+# Contraseña del panel — OPCIONAL. Sin estas dos líneas el servicio queda ABIERTO:
+# cualquiera que llegue a él puede subir ficheros y ver la lista completa.
+# Para activarla:  npm run set-password  y pegar aquí su salida.
+# DOCDROP_PASSWORD_HASH=
+# DOCDROP_SESSION_SECRET=
+ENVEOF
+  echo "    creado en modo ABIERTO (sin contraseña)"
 fi
 chown root:"$SERVICE_USER" "$ENV_FILE"
-chmod 640 "$ENV_FILE"   # el servicio la lee; el resto de usuarios no
+chmod 640 "$ENV_FILE"   # lo lee el servicio; el resto de usuarios no
 
 echo "==> Código en $APP_DIR"
 rm -rf "$APP_DIR"
@@ -95,8 +103,11 @@ if systemctl is-active --quiet docdrop.service; then
   echo ""
   systemd-analyze security docdrop.service 2>/dev/null | tail -3 || true
   echo ""
-  echo "Siguiente paso — publicarlo en internet:"
-  echo "  tailscale funnel --bg --https=8443 http://127.0.0.1:3010"
+  echo "Acceso privado (tailnet):"
+  echo "  tailscale serve --bg --https=8454 http://127.0.0.1:3010"
+  echo ""
+  echo "Exposición temporal a internet (se cierra con Ctrl-C):"
+  echo "  cloudflared tunnel --url http://127.0.0.1:3010"
 else
   echo "FALLÓ el arranque. Revisa:  journalctl -u docdrop -n 40 --no-pager" >&2
   exit 1

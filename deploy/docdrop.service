@@ -15,7 +15,8 @@ User=docdrop
 Group=docdrop
 
 WorkingDirectory=/opt/docdrop
-EnvironmentFile=/etc/docdrop.env
+# El guion lo hace opcional: el servicio arranca sin fichero de entorno (modo abierto).
+EnvironmentFile=-/etc/docdrop.env
 Environment=NODE_ENV=production
 Environment=PORT=3010
 # Escucha solo en loopback: la única vía de entrada es el proxy de Tailscale.

@@ -37,11 +37,22 @@ function sessionSecret(): string | null {
 }
 
 /**
- * Si falta configuración, la app queda cerrada en vez de abierta: sin contraseña
- * configurada no se puede entrar al panel (en vez de dejarlo sin protección).
+ * La contraseña es OPCIONAL y funciona como interruptor:
+ *
+ *   sin DOCDROP_PASSWORD_HASH  → servicio abierto (uso en red privada o tras un
+ *                                túnel temporal que se abre y se cierra a mano)
+ *   con DOCDROP_PASSWORD_HASH  → subir, listar y purgar exigen contraseña
+ *
+ * Para activarla: `npm run set-password`, pegar las dos líneas en el fichero de
+ * entorno y reiniciar. No hace falta tocar código.
  */
 export function isConfigured(): boolean {
   return Boolean(passwordHash() && sessionSecret());
+}
+
+/** True si hay que exigir sesión para las operaciones del panel. */
+export function authRequired(): boolean {
+  return isConfigured();
 }
 
 // ─── Contraseña ─────────────────────────────────────────────────────
@@ -110,12 +121,17 @@ export function verifySessionToken(token: string | undefined): boolean {
 
 // ─── Uso desde rutas y páginas ──────────────────────────────────────
 export async function hasSession(): Promise<boolean> {
+  if (!authRequired()) return true;
   const store = await cookies();
   return verifySessionToken(store.get(SESSION_COOKIE)?.value);
 }
 
-/** Devuelve null si hay sesión válida, o la respuesta 401 que debe devolverse. */
+/**
+ * Devuelve null si se puede continuar, o la respuesta 401 que debe devolverse.
+ * Con la contraseña sin configurar, siempre deja pasar.
+ */
 export async function requireSession(): Promise<Response | null> {
+  if (!authRequired()) return null;
   if (await hasSession()) return null;
   return Response.json({ error: "Unauthorized" }, { status: 401 });
 }
