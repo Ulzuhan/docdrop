@@ -74,6 +74,7 @@ Configurables por variable de entorno en `/etc/docdrop.env`:
 | `DOCDROP_MAX_FILE_BYTES` | 10 GB | Tamaño máximo por fichero |
 | `DOCDROP_MAX_TOTAL_BYTES` | 20 GB | Ocupación total; evita llenar el disco |
 | `DOCDROP_DATA_DIR` | `/var/lib/docdrop` | Dónde viven los ficheros |
+| `DOCDROP_REQUEST_TIMEOUT_MS` | 12 h | Duración máxima de una petición (ver abajo) |
 
 Rate limiting por IP (en memoria): 5 intentos de login cada 15 min, 30 subidas por
 hora, 240 descargas por minuto. La IP sale del último valor de `X-Forwarded-For`,
@@ -82,6 +83,26 @@ proxy de Tailscale). No se usa `X-Real-Ip`: Tailscale la deja pasar sin filtrar 
 el cliente puede inventarla para esquivar el límite.
 
 Cambiar `DOCDROP_SESSION_SECRET` invalida todas las sesiones abiertas.
+
+## Subidas largas
+
+Node aborta con un 408 cualquier petición que dure más de `requestTimeout`, y su
+valor por defecto son **5 minutos**. Como una subida es una única petición HTTP,
+un fichero grande se corta a media transferencia: a ~19 MB/s el límite llega sobre
+los 5,6 GB, así que un vídeo de 7 GB moría pasado el 80 %.
+
+Next no permite configurar ese valor (solo `keepAliveTimeout`) y `output:
+standalone` es incompatible con un servidor propio, así que `scripts/start.js`
+ajusta el servidor HTTP antes de arrancar Next y lo sube a 12 h. Se mantiene
+`headersTimeout` en 60 s, que es el que protege de clientes que mandan las
+cabeceras gota a gota; el cuerpo no puede crecer sin límite porque `/api/upload`
+corta al superar el tamaño máximo.
+
+Por eso el servicio arranca con `node start.js` y no con `node server.js`.
+
+**Ojo con los túneles**: el plan gratuito de Cloudflare limita el cuerpo de cada
+petición a 100 MB, así que los ficheros grandes hay que subirlos por la red local
+o por Tailscale, no a través de un quick tunnel.
 
 ## Purga periódica
 

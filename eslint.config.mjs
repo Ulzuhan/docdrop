@@ -13,6 +13,14 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    // Los scripts de scripts/ son de Node y CommonJS a propósito: start.js tiene que
+    // parchear http.createServer antes de cargar el servidor de Next, que es CJS.
+    files: ["scripts/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

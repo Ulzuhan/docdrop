@@ -5,9 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/start.js",
     "lint": "eslint",
-    "set-password": "node scripts/set-password.mjs"
+    "set-password": "node scripts/set-password.mjs",
+    "postbuild": "node scripts/prepare-standalone.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

@@ -31,6 +31,11 @@ if [[ ! -d "$SRC_DIR/.next/standalone" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$SRC_DIR/.next/standalone/start.js" ]]; then
+  echo "Falta start.js en la salida standalone. Vuelve a ejecutar 'npm run build'." >&2
+  exit 1
+fi
+
 echo "==> Usuario del sistema '$SERVICE_USER'"
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   # Sin shell, sin home y sin grupos extra. En particular, NUNCA en el grupo docker.
@@ -73,10 +78,8 @@ chmod 640 "$ENV_FILE"   # lo lee el servicio; el resto de usuarios no
 echo "==> Código en $APP_DIR"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
+# La salida standalone ya lleva dentro los estáticos y el lanzador (postbuild).
 cp -r "$SRC_DIR/.next/standalone/." "$APP_DIR/"
-mkdir -p "$APP_DIR/.next"
-cp -r "$SRC_DIR/.next/static" "$APP_DIR/.next/static"
-[[ -d "$SRC_DIR/public" ]] && cp -r "$SRC_DIR/public" "$APP_DIR/public"
 mkdir -p "$APP_DIR/deploy"
 cp "$SRC_DIR/deploy/README.md" "$APP_DIR/deploy/" 2>/dev/null || true
 # Propiedad de root y solo lectura para el servicio: si comprometen la aplicación,

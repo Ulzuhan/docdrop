@@ -23,7 +23,10 @@ Environment=PORT=3010
 Environment=HOSTNAME=127.0.0.1
 Environment=DOCDROP_DATA_DIR=/var/lib/docdrop
 
-ExecStart=/usr/local/bin/node server.js
+# start.js ajusta el requestTimeout del servidor HTTP antes de ceder el control a
+# Next: el valor por defecto de Node (5 min) corta las subidas grandes a media
+# transferencia. Se puede afinar con DOCDROP_REQUEST_TIMEOUT_MS.
+ExecStart=/usr/local/bin/node start.js
 Restart=on-failure
 RestartSec=5s
 
