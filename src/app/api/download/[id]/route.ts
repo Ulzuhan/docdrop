@@ -6,6 +6,7 @@ import {
   blobPath,
   claimDownload,
   contentDisposition,
+  isInlineSafe,
   isValidId,
   retireIfExhausted,
 } from "@/lib/store";
@@ -37,10 +38,15 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
+  // ?inline=1 sirve el fichero para verlo en el navegador (un <video> reproduciendo
+  // en streaming, por ejemplo) en vez de forzar la descarga. Previsualizar no cuenta
+  // como descarga: sería absurdo que abrir la vista previa consumiera el cupo.
+  const inline = request.nextUrl.searchParams.get("inline") === "1";
+
   const range = request.headers.get("range");
   const isContinuation = Boolean(range && !/^bytes=0-/.test(range));
 
-  const claim = await claimDownload(id, !isContinuation);
+  const claim = await claimDownload(id, !isContinuation && !inline);
   if (!claim.ok) {
     if (claim.reason === "not_found") {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
@@ -56,9 +62,12 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     return NextResponse.json({ error: "File data not found" }, { status: 404 });
   }
 
+  // Solo se sirve inline lo que no puede ejecutar guiones en nuestro origen.
+  const serveInline = inline && isInlineSafe(meta.mimeType);
+
   const headers = new Headers({
     "Content-Type": meta.mimeType,
-    "Content-Disposition": contentDisposition(meta.originalName),
+    "Content-Disposition": contentDisposition(meta.originalName, serveInline),
     "X-Content-Type-Options": "nosniff",
     "Accept-Ranges": "bytes",
     "Cache-Control": "no-store",
@@ -97,7 +106,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     headers.set("Content-Length", String(end - start + 1));
 
     const partial = createReadStream(blobPath(id), { start, end });
-    partial.on("close", () => void retireIfExhausted(id).catch(() => {}));
+    if (!inline) partial.on("close", () => void retireIfExhausted(id).catch(() => {}));
     return new NextResponse(Readable.toWeb(partial) as unknown as ReadableStream, {
       status: 206,
       headers,
@@ -109,7 +118,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
 
   const stream = createReadStream(blobPath(id));
   // Cuando termina el envío, si esta era la última descarga permitida, se borra.
-  stream.on("close", () => void retireIfExhausted(id).catch(() => {}));
+  // Una previsualización no consume descargas, así que tampoco puede agotarlas.
+  if (!inline) stream.on("close", () => void retireIfExhausted(id).catch(() => {}));
 
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
     status: 200,

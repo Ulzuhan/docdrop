@@ -64,13 +64,33 @@ async function jsonOrThrow(res: Response, fallback: string): Promise<never | Rec
   return data as Record<string, unknown>;
 }
 
+/**
+ * SHA-256 del trozo, para que el servidor pueda detectar corrupción.
+ *
+ * Devuelve null si no se puede calcular: crypto.subtle solo existe en contextos
+ * seguros (HTTPS o localhost), y por IP local en HTTP no está disponible. En ese
+ * caso la subida sigue funcionando, solo que sin esta comprobación.
+ */
+async function sha256Hex(blob: Blob): Promise<string | null> {
+  try {
+    if (!globalThis.crypto?.subtle) return null;
+    const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return null;
+  }
+}
+
 /** Envía un trozo con XMLHttpRequest para poder informar del progreso y cancelar. */
 function putPart(
   uploadId: string,
   index: number,
   blob: Blob,
   signal: AbortSignal,
-  onBytes: (bytes: number) => void
+  onBytes: (bytes: number) => void,
+  checksum: string | null
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -109,6 +129,7 @@ function putPart(
 
     xhr.open("PUT", `/api/upload/${uploadId}/part/${index}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    if (checksum) xhr.setRequestHeader("X-Chunk-Sha256", checksum);
     xhr.send(blob);
   });
 }
@@ -191,11 +212,12 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
         const index = pending[cursor++];
         const start = index * chunkSize;
         const blob = file.slice(start, Math.min(start + chunkSize, file.size));
+        const checksum = await sha256Hex(blob);
 
         let attempt = 0;
         for (;;) {
           try {
-            await putPart(uploadId!, index, blob, controller.signal, report);
+            await putPart(uploadId!, index, blob, controller.signal, report, checksum);
             break;
           } catch (error) {
             const message = error instanceof Error ? error.message : "";

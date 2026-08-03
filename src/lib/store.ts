@@ -99,11 +99,13 @@ export async function writeMeta(meta: FileMeta): Promise<void> {
 
 export async function createEntryDir(id: string): Promise<void> {
   await mkdir(entryDir(id), { recursive: true });
+  invalidateUsedBytes();
 }
 
 export async function deleteEntry(id: string): Promise<void> {
   if (!isValidId(id)) return;
   await rm(entryDir(id), { recursive: true, force: true });
+  invalidateUsedBytes();
 }
 
 // ─── Estado ─────────────────────────────────────────────────────────
@@ -142,13 +144,32 @@ export async function burn(id: string, reason: "expired" | "exhausted"): Promise
   const meta = await readMeta(id);
   if (!meta) return;
   await rm(blobPath(id), { force: true });
+  invalidateUsedBytes();
   meta.burnedAt = Date.now();
   meta.burnedReason = reason;
   await writeMeta(meta);
 }
 
-/** Bytes ocupados ahora mismo por los ficheros vivos (no cuenta las lápidas). */
+/**
+ * Bytes ocupados ahora mismo por los ficheros vivos (no cuenta las lápidas).
+ *
+ * El resultado se cachea unos segundos: el panel pide la lista cada 10 s por cada
+ * pestaña abierta, y recorrer el directorio entero en cada petición es I/O tirado a
+ * la basura. Cualquier cambio en el almacén invalida la caché explícitamente.
+ */
+let usedBytesCache: { value: number; at: number } | null = null;
+const USED_BYTES_TTL = 5000;
+
+export function invalidateUsedBytes(): void {
+  usedBytesCache = null;
+}
+
 export async function usedBytes(): Promise<number> {
+  const now = Date.now();
+  if (usedBytesCache && now - usedBytesCache.at < USED_BYTES_TTL) {
+    return usedBytesCache.value;
+  }
+
   if (!existsSync(UPLOAD_DIR)) return 0;
   let ids: string[];
   try {
@@ -166,6 +187,8 @@ export async function usedBytes(): Promise<number> {
       // Sin blob (lápida o subida a medias): no ocupa.
     }
   }
+
+  usedBytesCache = { value: total, at: now };
   return total;
 }
 
@@ -331,7 +354,27 @@ export function sanitizeFilename(raw: string): string {
 }
 
 /** Content-Disposition con soporte de nombres no ASCII (RFC 5987/6266). */
-export function contentDisposition(filename: string): string {
+export function contentDisposition(filename: string, inline = false): string {
   const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  const kind = inline ? "inline" : "attachment";
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+/**
+ * ¿Se puede servir este tipo dentro del navegador sin riesgo?
+ *
+ * Servir contenido subido por terceros con `inline` en el mismo origen es lo que
+ * convierte un servicio de ficheros en un XSS almacenado: basta con subir un .html
+ * o un .svg con un <script>. Solo se permite reproducir medios, y SVG queda fuera
+ * a propósito, porque es un documento con capacidad de ejecutar guiones.
+ */
+export function isInlineSafe(mimeType: string): boolean {
+  const type = mimeType.split(";")[0].trim().toLowerCase();
+  if (type === "image/svg+xml") return false;
+  return (
+    type.startsWith("video/") ||
+    type.startsWith("audio/") ||
+    (type.startsWith("image/") && type !== "image/svg+xml") ||
+    type === "application/pdf"
+  );
 }

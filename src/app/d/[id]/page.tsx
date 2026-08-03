@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SiteHeader } from "@/components/site-header";
+import { ShareButton } from "@/components/share-button";
+import { QrDialog } from "@/components/qr-dialog";
 import {
   fileEmoji,
   formatBytes,
@@ -146,6 +148,38 @@ export default function DownloadPage() {
               </p>
             </div>
 
+            {/* Previsualización: ver antes de bajarse varios GB. Se sirve con
+                ?inline=1, que no consume descargas y solo admite tipos que no
+                pueden ejecutar guiones en este origen. */}
+            {!expired && fileInfo.mimeType.startsWith("video/") && (
+              <video
+                controls
+                preload="metadata"
+                playsInline
+                className="mt-6 w-full rounded-2xl border border-border bg-black"
+                src={`/api/download/${id}?inline=1`}
+              >
+                Tu navegador no puede reproducir este vídeo.
+              </video>
+            )}
+
+            {!expired && fileInfo.mimeType.startsWith("audio/") && (
+              <audio controls className="mt-6 w-full" src={`/api/download/${id}?inline=1`}>
+                Tu navegador no puede reproducir este audio.
+              </audio>
+            )}
+
+            {!expired &&
+              fileInfo.mimeType.startsWith("image/") &&
+              fileInfo.mimeType !== "image/svg+xml" && (
+                // eslint-disable-next-line @next/next/no-img-element -- fichero servido por la propia app, sin optimizar
+                <img
+                  src={`/api/download/${id}?inline=1`}
+                  alt={fileInfo.originalName}
+                  className="mt-6 w-full rounded-2xl border border-border bg-card object-contain"
+                />
+              )}
+
             <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4 sm:p-5">
               <dl className="space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
@@ -186,14 +220,23 @@ export default function DownloadPage() {
                 Este fichero ha caducado y ya no está disponible.
               </p>
             ) : (
-              <Button size="lg" className="mt-6 h-12 w-full text-base" onClick={download}>
-                {downloading ? (
-                  <Loader2 className="size-5 animate-spin" aria-hidden />
-                ) : (
-                  <Download className="size-5" aria-hidden />
-                )}
-                {downloading ? "Empezando…" : "Descargar"}
-              </Button>
+              <div className="mt-6 flex items-center gap-2">
+                <Button size="lg" className="h-12 flex-1 text-base" onClick={download}>
+                  {downloading ? (
+                    <Loader2 className="size-5 animate-spin" aria-hidden />
+                  ) : (
+                    <Download className="size-5" aria-hidden />
+                  )}
+                  {downloading ? "Empezando…" : "Descargar"}
+                </Button>
+                {/* Reenviar el enlace a otra persona sin volver al panel. */}
+                <ShareButton
+                  path={`/d/${id}`}
+                  title={fileInfo.originalName}
+                  className="size-12 shrink-0"
+                />
+                <QrDialog path={`/d/${id}`} filename={fileInfo.originalName} />
+              </div>
             )}
 
             {fileInfo.maxDownloads > 0 && !expired && (

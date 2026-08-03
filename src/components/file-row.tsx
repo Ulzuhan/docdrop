@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { CopyLinkButton } from "@/components/copy-link-button";
+import { ShareButton } from "@/components/share-button";
+import { QrDialog } from "@/components/qr-dialog";
 import {
   fileEmoji,
   formatAgo,
@@ -86,6 +88,8 @@ export function FileRow({ file, now, onDeleted }: Props) {
           >
             {remaining}
           </Badge>
+          <ShareButton path={`/d/${file.id}`} title={file.originalName} />
+          <QrDialog path={`/d/${file.id}`} filename={file.originalName} />
           <CopyLinkButton path={`/d/${file.id}`} variant="ghost" className="size-9" />
           <Button
             render={<a href={`/api/download/${file.id}`} />}

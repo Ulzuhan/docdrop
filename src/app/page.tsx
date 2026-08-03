@@ -1,20 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FileUp, Flame, Loader2, LogOut, Upload, X } from "lucide-react";
+import { FileUp, Flame, FolderUp, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SiteHeader } from "@/components/site-header";
-import { CopyLinkButton } from "@/components/copy-link-button";
 import { FileRow, type FileInfo } from "@/components/file-row";
-import { formatBytes, formatRemaining } from "@/lib/format";
-import {
-  uploadFileInChunks,
-  type UploadHandle,
-  type UploadResult,
-} from "@/lib/chunked-upload";
+import { UploadQueue, useUploadQueue } from "@/components/upload-queue";
 
 const TTL_OPTIONS = [
   { hours: 1, label: "1 h" },
@@ -25,13 +18,6 @@ const TTL_OPTIONS = [
 
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [uploadedBytes, setUploadedBytes] = useState(0);
-  const [totalBytes, setTotalBytes] = useState(0);
-  const [resumedNotice, setResumedNotice] = useState(false);
-  const [uploadingName, setUploadingName] = useState("");
-  const [result, setResult] = useState<UploadResult | null>(null);
   const [ttl, setTtl] = useState(24);
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
@@ -41,10 +27,14 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadRef = useRef<UploadHandle | null>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
 
   const refresh = useCallback(() => setReloadToken((n) => n + 1), []);
+  const { items, enqueue, cancel, clearFinished } = useUploadQueue({
+    ttlHours: ttl,
+    onCompleted: refresh,
+  });
 
   // Reloj compartido por las cuentas atrás, en estado y no leído durante el render.
   useEffect(() => {
@@ -83,67 +73,12 @@ export default function Home() {
     };
   }, [reloadToken]);
 
-  const uploadFile = useCallback(
-    async (file: File) => {
-      setUploading(true);
-      setProgress(0);
-      setUploadedBytes(0);
-      setTotalBytes(file.size);
-      setUploadingName(file.name);
-      setResult(null);
-
-      // La subida se parte en trozos: sortea el tope de 500 MiB por petición que
-      // impone Cloudflare y, sobre todo, permite retomarla si la red se corta.
-      const handle = uploadFileInChunks(file, {
-        ttlHours: ttl,
-        onProgress: ({ loaded, total, resumed }) => {
-          setUploadedBytes(loaded);
-          setProgress(total > 0 ? Math.round((loaded / total) * 100) : 0);
-          if (resumed) setResumedNotice(true);
-        },
-      });
-      uploadRef.current = handle;
-
-      try {
-        const response = await handle.promise;
-        setResult(response);
-        toast.success("Fichero subido", { description: response.originalName });
-        refresh();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "La subida falló";
-        if (message === "UNAUTHORIZED") {
-          window.location.href = "/login";
-          return;
-        }
-        if (message !== "ABORTED") {
-          toast.error(message, {
-            description: "Vuelve a elegir el mismo fichero para continuar donde iba.",
-          });
-        }
-      } finally {
-        uploadRef.current = null;
-        setUploading(false);
-        setResumedNotice(false);
-      }
-    },
-    [ttl, refresh]
-  );
-
-  // Referencia estable para poder lanzar la subida desde el efecto de "compartir"
-  // sin encadenarlo a las dependencias de uploadFile.
-  const uploadFileRef = useRef(uploadFile);
-  useEffect(() => {
-    uploadFileRef.current = uploadFile;
-  }, [uploadFile]);
-
   // Fichero llegado desde el menú "Compartir" del móvil: el service worker lo deja
   // guardado y redirige aquí con ?shared=1.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const shared = params.get("shared");
     if (!shared) return;
-
-    // Se limpia la URL para que al recargar no se reintente la misma subida.
     window.history.replaceState({}, "", "/");
 
     if (shared === "error") {
@@ -158,8 +93,7 @@ export default function Home() {
         if (!res.ok) return;
         const name = decodeURIComponent(res.headers.get("X-Shared-Filename") || "compartido");
         const blob = await res.blob();
-        if (cancelled) return;
-        void uploadFileRef.current?.(new File([blob], name, { type: blob.type }));
+        if (!cancelled) enqueue([new File([blob], name, { type: blob.type })]);
       } catch {
         toast.error("No se pudo leer el fichero compartido");
       }
@@ -168,16 +102,40 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enqueue]);
 
-  function handleFiles(list: FileList | null) {
-    const file = list?.[0];
-    if (file) void uploadFile(file);
-    if (list && list.length > 1) {
-      toast.info("Se sube un fichero cada vez", {
-        description: `Enviando “${list[0].name}”.`,
-      });
+  /** Extrae los ficheros de un arrastre, entrando en las carpetas si las hay. */
+  async function filesFromDrop(dataTransfer: DataTransfer): Promise<File[]> {
+    const entries = Array.from(dataTransfer.items)
+      .map((item) => (item.kind === "file" ? item.webkitGetAsEntry?.() : null))
+      .filter(Boolean) as FileSystemEntry[];
+
+    if (entries.length === 0) return Array.from(dataTransfer.files);
+
+    const out: File[] = [];
+    async function walk(entry: FileSystemEntry): Promise<void> {
+      if (entry.isFile) {
+        const file = await new Promise<File | null>((resolve) =>
+          (entry as FileSystemFileEntry).file(resolve, () => resolve(null))
+        );
+        if (file) out.push(file);
+        return;
+      }
+      if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        // readEntries devuelve como mucho 100 por llamada: hay que insistir.
+        for (;;) {
+          const batch = await new Promise<FileSystemEntry[]>((resolve) =>
+            reader.readEntries(resolve, () => resolve([]))
+          );
+          if (batch.length === 0) break;
+          for (const child of batch) await walk(child);
+        }
+      }
     }
+
+    for (const entry of entries) await walk(entry);
+    return out;
   }
 
   return (
@@ -205,109 +163,99 @@ export default function Home() {
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-8 pb-safe sm:px-6 sm:pt-12">
         <div className="mb-8 text-center sm:mb-10">
           <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-            Comparte un fichero en segundos
+            Comparte ficheros en segundos
           </h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground text-balance sm:text-base">
-            Súbelo, comparte el enlace y deja que se borre solo.
+            Súbelos, comparte el enlace y deja que se borren solos.
           </p>
         </div>
 
         {/* ── Zona de subida ─────────────────────────────────────────── */}
-        {!result && (
-          <section aria-label="Subir fichero">
-            <div
-              onDragEnter={(e) => {
-                e.preventDefault();
-                dragDepth.current += 1;
-                setIsDragging(true);
+        <section aria-label="Subir ficheros">
+          <div
+            onDragEnter={(e) => {
+              e.preventDefault();
+              dragDepth.current += 1;
+              setIsDragging(true);
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              // Contador de profundidad: sin esto, arrastrar sobre un hijo dispara
+              // dragleave y el resaltado parpadea.
+              dragDepth.current -= 1;
+              if (dragDepth.current <= 0) setIsDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              dragDepth.current = 0;
+              setIsDragging(false);
+              void filesFromDrop(e.dataTransfer).then((dropped) => {
+                if (dropped.length > 0) enqueue(dropped);
+              });
+            }}
+            className={`relative overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
+              isDragging
+                ? "border-primary bg-primary/10 shadow-lg shadow-primary/10 sm:scale-[1.01]"
+                : "border-border bg-card/40 hover:border-primary/50 hover:bg-card/70"
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="sr-only"
+              onChange={(e) => {
+                enqueue(Array.from(e.target.files ?? []));
+                e.target.value = "";
               }}
-              onDragOver={(e) => e.preventDefault()}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                // Contador de profundidad: sin esto, arrastrar sobre un hijo dispara
-                // dragleave y el resaltado parpadea.
-                dragDepth.current -= 1;
-                if (dragDepth.current <= 0) setIsDragging(false);
+            />
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              // @ts-expect-error atributo no estándar, soportado por los navegadores
+              webkitdirectory=""
+              className="sr-only"
+              onChange={(e) => {
+                enqueue(Array.from(e.target.files ?? []));
+                e.target.value = "";
               }}
-              onDrop={(e) => {
-                e.preventDefault();
-                dragDepth.current = 0;
-                setIsDragging(false);
-                if (!uploading) handleFiles(e.dataTransfer.files);
-              }}
-              className={`relative overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
-                isDragging
-                  ? "border-primary bg-primary/10 shadow-lg shadow-primary/10 sm:scale-[1.01]"
-                  : "border-border bg-card/40 hover:border-primary/50 hover:bg-card/70"
-              }`}
+            />
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex w-full flex-col items-center gap-3 px-6 py-10 text-center outline-none focus-visible:ring-2 focus-visible:ring-ring sm:py-14"
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="sr-only"
-                onChange={(e) => {
-                  handleFiles(e.target.files);
-                  e.target.value = "";
-                }}
-              />
+              <span
+                aria-hidden
+                className="grid size-14 place-items-center rounded-2xl bg-primary/12 text-primary ring-1 ring-primary/20 sm:size-16"
+              >
+                <FileUp className="size-6 sm:size-7" />
+              </span>
+              <span className="text-base font-medium sm:text-lg">
+                Toca para elegir ficheros
+              </span>
+              <span className="text-sm text-muted-foreground">
+                <span className="hidden sm:inline">o arrástralos aquí · </span>
+                varios a la vez · hasta 10 GB cada uno
+              </span>
+            </button>
+          </div>
 
-              {uploading ? (
-                <div className="space-y-4 p-6 sm:p-10">
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="size-5 shrink-0 animate-spin text-primary" aria-hidden />
-                    <p className="min-w-0 flex-1 truncate text-sm font-medium">{uploadingName}</p>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0"
-                      aria-label="Cancelar subida"
-                      onClick={() => uploadRef.current?.abort()}
-                    >
-                      <X className="size-4" aria-hidden />
-                    </Button>
-                  </div>
-                  <Progress value={progress} className="h-2" />
-                  <div className="flex items-center justify-between text-sm tabular-nums text-muted-foreground">
-                    <span>
-                      {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)}
-                    </span>
-                    <span>{progress}%</span>
-                  </div>
-                  {resumedNotice && (
-                    <p className="text-center text-xs text-success">
-                      Continuando una subida anterior
-                    </p>
-                  )}
-                  <p className="text-center text-xs text-muted-foreground">
-                    Se envía por partes: si se corta, vuelve a elegir el mismo fichero y
-                    sigue donde iba.
-                  </p>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full flex-col items-center gap-3 px-6 py-10 text-center outline-none focus-visible:ring-2 focus-visible:ring-ring sm:py-14"
-                >
-                  <span
-                    aria-hidden
-                    className="grid size-14 place-items-center rounded-2xl bg-primary/12 text-primary ring-1 ring-primary/20 sm:size-16"
-                  >
-                    <FileUp className="size-6 sm:size-7" />
-                  </span>
-                  <span className="text-base font-medium sm:text-lg">
-                    Toca para elegir un fichero
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    <span className="hidden sm:inline">o arrástralo aquí · </span>
-                    hasta 10 GB
-                  </span>
-                </button>
-              )}
-            </div>
+          <div className="mt-4 flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 text-muted-foreground hover:text-foreground"
+              onClick={() => folderInputRef.current?.click()}
+            >
+              <FolderUp className="size-4" aria-hidden />
+              Subir una carpeta
+            </Button>
 
-            {/* Caducidad */}
-            <div className="mt-5 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Flame className="size-3.5" aria-hidden />
                 Se autodestruye en
@@ -323,8 +271,7 @@ export default function Home() {
                     role="radio"
                     aria-checked={ttl === option.hours}
                     onClick={() => setTtl(option.hours)}
-                    disabled={uploading}
-                    className={`rounded-lg px-3 py-2 text-sm font-medium transition-all disabled:opacity-50 sm:py-1.5 ${
+                    className={`rounded-lg px-3 py-2 text-sm font-medium transition-all sm:py-1.5 ${
                       ttl === option.hours
                         ? "bg-background text-foreground shadow-sm ring-1 ring-border"
                         : "text-muted-foreground hover:text-foreground"
@@ -335,48 +282,10 @@ export default function Home() {
                 ))}
               </div>
             </div>
-          </section>
-        )}
+          </div>
 
-        {/* ── Resultado ──────────────────────────────────────────────── */}
-        {result && (
-          <section
-            aria-label="Fichero subido"
-            className="rounded-2xl border border-success/30 bg-success/5 p-5 sm:p-6"
-          >
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium" title={result.originalName}>
-                  {result.originalName}
-                </p>
-                <p className="mt-0.5 text-sm text-muted-foreground">
-                  {formatBytes(result.size)} · caduca en {formatRemaining(result.expiresAt, now)}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-xl border border-border bg-background/70 px-3 py-2.5">
-              <p className="truncate font-mono text-xs text-muted-foreground sm:text-sm">
-                {typeof window !== "undefined" ? window.location.origin : ""}
-                {result.downloadUrl}
-              </p>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <CopyLinkButton
-                path={result.downloadUrl}
-                label="Copiar enlace"
-                variant="default"
-                className="w-full sm:flex-1"
-              />
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => setResult(null)}>
-                <Upload className="size-4" aria-hidden />
-                Subir otro
-              </Button>
-            </div>
-          </section>
-        )}
+          <UploadQueue items={items} onCancel={cancel} onClearFinished={clearFinished} />
+        </section>
 
         {/* ── Lista ──────────────────────────────────────────────────── */}
         <section aria-label="Ficheros activos" className="mt-10 sm:mt-12">

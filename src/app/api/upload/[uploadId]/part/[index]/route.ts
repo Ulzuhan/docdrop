@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWriteStream } from "fs";
+import { createHash } from "crypto";
 import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 import type { ReadableStream as NodeWebReadableStream } from "stream/web";
@@ -60,6 +61,13 @@ export async function PUT(
   const expected = partSize(session, index);
   const { start } = partRange(session, index);
 
+  // El cliente puede enviar el SHA-256 del trozo. Con reintentos automáticos y
+  // reanudación, un trozo que llegue corrupto pasaría desapercibido: el tamaño
+  // cuadraría y se daría por bueno. La cabecera es opcional porque crypto.subtle
+  // solo existe en contextos seguros (HTTPS o localhost).
+  const declaredHash = request.headers.get("x-chunk-sha256")?.trim().toLowerCase() || null;
+  const hasher = declaredHash ? createHash("sha256") : null;
+
   let written = 0;
   const counter = new Transform({
     transform(chunk: Buffer, _enc, cb) {
@@ -68,6 +76,7 @@ export async function PUT(
         cb(Object.assign(new Error("Part larger than expected"), { code: "PART_TOO_LARGE" }));
         return;
       }
+      hasher?.update(chunk);
       cb(null, chunk);
     },
   });
@@ -91,6 +100,18 @@ export async function PUT(
       { error: "Incomplete part", expected, received: written },
       { status: 400 }
     );
+  }
+
+  // Integridad: si no cuadra, NO se marca como recibido, así que el cliente lo
+  // reenviará y sobrescribirá el mismo rango del fichero.
+  if (hasher) {
+    const actual = hasher.digest("hex");
+    if (actual !== declaredHash) {
+      return NextResponse.json(
+        { error: "Checksum mismatch", expected: declaredHash, actual },
+        { status: 422 }
+      );
+    }
   }
 
   await markPartReceived(uploadId, index);

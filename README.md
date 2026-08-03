@@ -10,6 +10,8 @@ de 7 GB entre móviles y ordenadores **sin que WhatsApp o Telegram lo recomprima
 - Next.js 16 (App Router) · React 19 · Tailwind v4 · shadcn/ui
 - Sin base de datos: los ficheros y sus metadatos viven en disco
 - PWA instalable, con soporte del menú "Compartir" de Android
+- Subida de varios ficheros o carpetas enteras, por trozos y reanudable
+- Previsualización de vídeo, audio e imagen antes de descargar
 
 ---
 
@@ -204,6 +206,38 @@ descarga de vuelta      ->  SHA256 idéntico
 
 ---
 
+## Subir varios a la vez
+
+Se pueden soltar varios ficheros, elegirlos con el selector o arrastrar una carpeta
+entera (se recorre en profundidad). La cola sube **de dos en dos**: lanzarlas todas
+a la vez reparte el ancho de banda entre muchas conexiones y no termina ninguna, que
+con vídeos de varios GB es lo peor posible.
+
+Mientras hay algo subiendo se pide un **Wake Lock** para que la pantalla del móvil no
+se apague. Sin eso el sistema suspende la subida al bloquear: no se pierde el
+progreso, pero hay que volver a la app y reelegir el fichero.
+
+## Integridad
+
+El navegador manda el SHA-256 de cada trozo en `X-Chunk-Sha256` y el servidor lo
+verifica antes de darlo por bueno; si no cuadra responde 422 y **no** marca el trozo
+como recibido, así que el cliente lo reenvía. Sin esto, con reintentos automáticos de
+por medio, un trozo corrupto habría pasado desapercibido: el tamaño cuadraba.
+
+La cabecera es opcional porque `crypto.subtle` solo existe en contextos seguros
+(HTTPS o localhost); por IP local en HTTP la subida funciona igual, sin comprobación.
+
+## Pruebas
+
+```bash
+PORT=3456 npm run start &
+npm run test:upload
+```
+
+18 comprobaciones sobre el protocolo de subida: trozos, reanudación, idempotencia,
+checksums, índices inválidos y límites. Sin dependencias ni framework — se ejecuta
+contra un servidor en marcha y borra lo que crea.
+
 ## PWA
 
 Instalable en la pantalla de inicio. El manifiesto declara `share_target`, así que
@@ -238,6 +272,7 @@ HTTP el navegador no permite instalar ni compartir.
 | `DELETE /api/files/[id]` | Borra un fichero |
 | `GET /api/info/[id]` | Metadatos, sin consumir descarga · **público** |
 | `GET /api/download/[id]` | Descarga, admite `Range` · **público** |
+| `GET /api/download/[id]?inline=1` | Previsualizar sin consumir descarga · **público** |
 | `POST /api/cleanup` | Purga caducados, agotados y subidas abandonadas |
 | `POST /api/auth/login` · `/api/auth/logout` | Sesión, si hay contraseña |
 
@@ -288,8 +323,12 @@ sin acceso a `/home`, con topes de memoria), hay una unidad de systemd preparada
 
 ## Mantenimiento
 
-Los ficheros caducados se borran al intentar acceder a ellos, pero conviene un barrido
-periódico que recoja también las subidas abandonadas:
+El servidor **barre el almacén cada hora** por su cuenta (ver `instrumentation-node.ts`):
+borra lo caducado, lo agotado y las subidas abandonadas. Antes esto no existía y un
+fichero caducado que nadie volviera a abrir se quedaba ocupando cuota para siempre,
+hasta que las subidas nuevas empezaban a fallar con "Storage full".
+
+Para forzarlo a mano:
 
 ```bash
 curl -X POST http://127.0.0.1:3456/api/cleanup
@@ -319,6 +358,12 @@ Cosas que costaron encontrar y conviene no volver a romper:
   llegaban como `informe%20a%CC%81nual.txt`.
 - **`serverExternalPackages` no sirve para módulos nativos.** Listaba `fs`, `path` y
   `crypto` "para permitir subidas grandes"; no hacía absolutamente nada.
+- **La previsualización solo admite tipos que no ejecutan guiones.** Servir contenido
+  subido con `Content-Disposition: inline` en el mismo origen es lo que convierte un
+  servicio de ficheros en un XSS almacenado: basta con subir un `.html` o un `.svg`.
+  Se permiten vídeo, audio, imagen (menos SVG) y PDF; el resto se fuerza a descarga.
+- **Previsualizar no consume descargas**, o abrir la vista previa gastaría el cupo del
+  fichero.
 - **No se lee `Date.now()` durante el render.** Es impuro y además dejaba las cuentas
   atrás congeladas en el valor que tuvieran al abrir la página.
 
