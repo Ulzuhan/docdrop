@@ -41,6 +41,8 @@ export interface FileMeta {
   expiresAt: number;
   downloadCount: number;
   maxDownloads: number; // 0 = ilimitado
+  /** Quién lo subió. Es una etiqueta informativa, no una identidad verificada. */
+  uploadedBy?: string;
   /**
    * Marca de "lápida": el contenido ya se borró, pero se conserva el meta.json un
    * tiempo para poder responder "esto caducó / agotó sus descargas" en vez de un
@@ -351,6 +353,19 @@ export function sanitizeFilename(raw: string): string {
   const clean = base.replace(/[\u0000-\u001f\u007f]/g, "").trim();
   if (!clean || clean === "." || clean === "..") return "file";
   return clean.slice(0, 255);
+}
+
+/**
+ * Nombre de quien sube, para poder distinguir de quién es cada fichero en la lista.
+ *
+ * No es una identidad: el servicio puede estar abierto y cualquiera puede escribir lo
+ * que quiera. Solo se limpia para que no reviente la interfaz ni se cuele nada raro
+ * en los metadatos.
+ */
+export function sanitizeUploader(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const clean = raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40);
+  return clean.length > 0 ? clean : undefined;
 }
 
 /** Content-Disposition con soporte de nombres no ASCII (RFC 5987/6266). */

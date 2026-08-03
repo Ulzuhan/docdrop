@@ -137,6 +137,8 @@ function putPart(
 export interface UploadOptions {
   ttlHours: number;
   maxDownloads?: number;
+  /** Etiqueta de quién sube, informativa. */
+  uploadedBy?: string;
   onProgress?: (progress: Progress) => void;
   /** Trozos enviados a la vez. Más de uno aprovecha mejor el ancho de banda. */
   concurrency?: number;
@@ -181,6 +183,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
           mimeType: file.type || "application/octet-stream",
           ttlHours: options.ttlHours,
           maxDownloads: options.maxDownloads ?? 0,
+          uploadedBy: options.uploadedBy,
         }),
       });
       if (res.status === 401) throw new Error("UNAUTHORIZED");

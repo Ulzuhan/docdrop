@@ -9,6 +9,7 @@ import { CopyLinkButton } from "@/components/copy-link-button";
 import { ShareButton } from "@/components/share-button";
 import { fileEmoji, formatBytes } from "@/lib/format";
 import { uploadFileInChunks, type UploadHandle, type UploadResult } from "@/lib/chunked-upload";
+import { getUploaderName } from "@/lib/uploader-name";
 
 type ItemState = "pending" | "uploading" | "done" | "error" | "cancelled";
 
@@ -24,6 +25,7 @@ export interface QueueItem {
 
 interface Props {
   ttlHours: number;
+  maxDownloads: number;
   onCompleted: () => void;
 }
 
@@ -39,7 +41,7 @@ export interface UploadQueueHandle {
  * banda entre muchas conexiones y hace que ninguno termine, que con vídeos de varios
  * GB es lo peor posible. De dos en dos se aprovecha el enlace y se ve avanzar algo.
  */
-export function useUploadQueue({ ttlHours, onCompleted }: Props) {
+export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
   const [items, setItems] = useState<QueueItem[]>([]);
   // La cola vive en una ref y el estado es solo su reflejo para pintar: la lógica
   // necesita leer la lista actual fuera del ciclo de render, y así no se muta nunca
@@ -48,11 +50,13 @@ export function useUploadQueue({ ttlHours, onCompleted }: Props) {
   const handles = useRef(new Map<string, UploadHandle>());
   const running = useRef(0);
   const wakeLock = useRef<WakeLockSentinel | null>(null);
-  const ttlRef = useRef(ttlHours);
+  // Las opciones se leen al empezar cada subida, no al encolarla: así cambiarlas
+  // afecta a lo que queda por subir sin recrear la cola.
+  const optionsRef = useRef({ ttlHours, maxDownloads });
 
   useEffect(() => {
-    ttlRef.current = ttlHours;
-  }, [ttlHours]);
+    optionsRef.current = { ttlHours, maxDownloads };
+  }, [ttlHours, maxDownloads]);
 
   const commit = useCallback((next: QueueItem[]) => {
     queue.current = next;
@@ -116,7 +120,9 @@ export function useUploadQueue({ ttlHours, onCompleted }: Props) {
       void acquireWakeLock();
 
       const handle = uploadFileInChunks(file, {
-        ttlHours: ttlRef.current,
+        ttlHours: optionsRef.current.ttlHours,
+        maxDownloads: optionsRef.current.maxDownloads,
+        uploadedBy: getUploaderName() || undefined,
         onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
       });
       handles.current.set(key, handle);

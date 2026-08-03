@@ -26,15 +26,18 @@ export interface FileInfo {
   expiresAt: number;
   downloadCount: number;
   maxDownloads: number;
+  uploadedBy?: string;
 }
 
 interface Props {
   file: FileInfo;
   now: number;
   onDeleted: (id: string) => void;
+  selected: boolean;
+  onToggle: (id: string) => void;
 }
 
-export function FileRow({ file, now, onDeleted }: Props) {
+export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
   const [deleting, setDeleting] = useState(false);
   const elapsed = lifeElapsed(file.uploadedAt, file.expiresAt, now) * 100;
   const remaining = formatRemaining(file.expiresAt, now);
@@ -56,6 +59,14 @@ export function FileRow({ file, now, onDeleted }: Props) {
   return (
     <li className="group relative overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:border-border hover:bg-card">
       <div className="flex items-start gap-3 p-3 sm:items-center sm:p-4">
+        {/* Seleccionar para descargar varios juntos en un ZIP. */}
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggle(file.id)}
+          aria-label={`Seleccionar ${file.originalName}`}
+          className="mt-1 size-4 shrink-0 accent-primary sm:mt-0"
+        />
         <span aria-hidden className="mt-0.5 text-xl sm:mt-0 sm:text-2xl">
           {fileEmoji(file.mimeType, file.originalName)}
         </span>
@@ -70,6 +81,12 @@ export function FileRow({ file, now, onDeleted }: Props) {
             <span className="tabular-nums">{formatBytes(file.size)}</span>
             <span aria-hidden>·</span>
             <span>{formatAgo(file.uploadedAt, now)}</span>
+            {file.uploadedBy && (
+              <>
+                <span aria-hidden>·</span>
+                <span className="max-w-[10rem] truncate">de {file.uploadedBy}</span>
+              </>
+            )}
             {file.maxDownloads > 0 && (
               <>
                 <span aria-hidden>·</span>

@@ -14,6 +14,7 @@ import {
   deleteEntry,
   generateId,
   sanitizeFilename,
+  sanitizeUploader,
   usedBytes,
   writeMeta,
   type FileMeta,
@@ -129,6 +130,11 @@ export async function POST(request: NextRequest) {
       expiresAt: now + ttlHours * 60 * 60 * 1000,
       downloadCount: 0,
       maxDownloads,
+      uploadedBy: sanitizeUploader(
+        request.headers.get("x-uploaded-by")
+          ? decodeURIComponent(request.headers.get("x-uploaded-by")!)
+          : undefined
+      ),
     };
     await writeMeta(meta);
 

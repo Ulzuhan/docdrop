@@ -12,6 +12,7 @@ de 7 GB entre móviles y ordenadores **sin que WhatsApp o Telegram lo recomprima
 - PWA instalable, con soporte del menú "Compartir" de Android
 - Subida de varios ficheros o carpetas enteras, por trozos y reanudable
 - Previsualización de vídeo, audio e imagen antes de descargar
+- Descarga de varios ficheros juntos en un ZIP, sin comprimir y por streaming
 
 ---
 
@@ -217,6 +218,42 @@ Mientras hay algo subiendo se pide un **Wake Lock** para que la pantalla del mó
 se apague. Sin eso el sistema suspende la subida al bloquear: no se pierde el
 progreso, pero hay que volver a la app y reelegir el fichero.
 
+## Descargar varios en un ZIP
+
+Se marcan varios ficheros en la lista y se bajan de una vez. El ZIP se genera **por
+streaming y sin comprimir** (método "store"): lo que se comparte aquí son vídeos y
+fotos, que ya vienen comprimidos, así que pasarlos por deflate solo gastaría CPU. Sale
+a velocidad de disco y no ocupa espacio temporal en el servidor.
+
+Detalles que importan:
+
+- **ZIP64 cuando hace falta.** Un vídeo de 7 GB no cabe en los campos de 32 bits del
+  formato clásico; sin esto el ZIP saldría corrupto justo en el caso para el que
+  existe el servicio. Comprobado con un fichero de 4,5 GB: `unzip -t` lo valida y el
+  contenido sale intacto, con 250 bytes de sobrecarga.
+- **Descriptor de datos**, para no tener que leer cada fichero dos veces ni cargarlo
+  en memoria para calcular el CRC por adelantado.
+- Los nombres repetidos se renombran dentro del ZIP (`foto.jpg`, `foto (2).jpg`).
+- Cada fichero incluido cuenta como una descarga suya. Los que ya no estén
+  disponibles se omiten en vez de tumbar el ZIP entero: mejor recibir 9 de 10 vídeos
+  que un error.
+
+```
+GET /api/zip?ids=a,b,c&name=viaje
+```
+
+## Quién sube cada fichero
+
+Cada uno pone su nombre en el panel (se guarda en el navegador) y los ficheros que
+suba quedan etiquetados con él en la lista. Es una etiqueta informativa, no una
+identidad: el servicio puede estar abierto y cualquiera puede escribir lo que quiera.
+
+## Límite de descargas
+
+Se elige en el panel junto a la caducidad: sin límite, 1, 5 o 20. Al agotarse, el
+contenido se borra y el enlace pasa a responder "descargas agotadas". Útil para
+mandar algo a una persona concreta y que no quede dando vueltas.
+
 ## Integridad
 
 El navegador manda el SHA-256 de cada trozo en `X-Chunk-Sha256` y el servidor lo
@@ -273,6 +310,7 @@ HTTP el navegador no permite instalar ni compartir.
 | `GET /api/info/[id]` | Metadatos, sin consumir descarga · **público** |
 | `GET /api/download/[id]` | Descarga, admite `Range` · **público** |
 | `GET /api/download/[id]?inline=1` | Previsualizar sin consumir descarga · **público** |
+| `GET /api/zip?ids=a,b,c` | Varios ficheros en un ZIP · **público** |
 | `POST /api/cleanup` | Purga caducados, agotados y subidas abandonadas |
 | `POST /api/auth/login` · `/api/auth/logout` | Sesión, si hay contraseña |
 

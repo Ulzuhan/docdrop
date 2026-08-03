@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileUp, Flame, FolderUp, LogOut } from "lucide-react";
+import { Download, FileUp, Flame, FolderUp, LogOut, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SiteHeader } from "@/components/site-header";
 import { FileRow, type FileInfo } from "@/components/file-row";
 import { UploadQueue, useUploadQueue } from "@/components/upload-queue";
+import { UploaderNameField } from "@/components/uploader-name-field";
 
 const TTL_OPTIONS = [
   { hours: 1, label: "1 h" },
@@ -16,9 +17,19 @@ const TTL_OPTIONS = [
   { hours: 72, label: "3 días" },
 ];
 
+/** 0 = sin límite. Con límite, el fichero se borra al agotarlo. */
+const DOWNLOAD_OPTIONS = [
+  { value: 0, label: "∞" },
+  { value: 1, label: "1" },
+  { value: 5, label: "5" },
+  { value: 20, label: "20" },
+];
+
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [ttl, setTtl] = useState(24);
+  const [maxDownloads, setMaxDownloads] = useState(0);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [storage, setStorage] = useState<{ usedBytes: number; totalBytes: number } | null>(null);
@@ -33,8 +44,30 @@ export default function Home() {
   const refresh = useCallback(() => setReloadToken((n) => n + 1), []);
   const { items, enqueue, cancel, clearFinished } = useUploadQueue({
     ttlHours: ttl,
+    maxDownloads,
     onCompleted: refresh,
   });
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  /**
+   * Descarga los seleccionados en un solo ZIP. Se navega en vez de usar fetch: así
+   * el navegador escribe directamente a disco en vez de acumularlo en memoria, que
+   * con varios GB sería inviable.
+   */
+  const downloadZip = useCallback(() => {
+    const ids = [...selected].join(",");
+    if (!ids) return;
+    window.location.href = `/api/zip?ids=${ids}`;
+    setSelected(new Set());
+  }, [selected]);
 
   // Reloj compartido por las cuentas atrás, en estado y no leído durante el render.
   useEffect(() => {
@@ -56,6 +89,11 @@ export default function Home() {
         const data = await res.json();
         if (cancelled) return;
         setFiles(data.files);
+        setSelected((prev) => {
+          const alive = new Set(data.files.map((f: FileInfo) => f.id));
+          const next = new Set([...prev].filter((id) => alive.has(id)));
+          return next.size === prev.size ? prev : next;
+        });
         setStorage(data.storage ?? null);
         setAuthEnabled(Boolean(data.authEnabled));
       } catch {
@@ -245,20 +283,52 @@ export default function Home() {
           </div>
 
           <div className="mt-4 flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-9 text-muted-foreground hover:text-foreground"
-              onClick={() => folderInputRef.current?.click()}
-            >
-              <FolderUp className="size-4" aria-hidden />
-              Subir una carpeta
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 text-muted-foreground hover:text-foreground"
+                onClick={() => folderInputRef.current?.click()}
+              >
+                <FolderUp className="size-4" aria-hidden />
+                Carpeta
+              </Button>
+              <UploaderNameField />
+            </div>
 
             <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Download className="size-3.5" aria-hidden />
+                Descargas
+              </span>
+              <div
+                role="radiogroup"
+                aria-label="Número máximo de descargas"
+                className="grid w-full grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1 sm:w-auto"
+              >
+                {DOWNLOAD_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    role="radio"
+                    aria-checked={maxDownloads === option.value}
+                    aria-label={
+                      option.value === 0 ? "Sin límite" : `${option.value} descargas`
+                    }
+                    onClick={() => setMaxDownloads(option.value)}
+                    className={`rounded-lg px-3 py-2 text-sm font-medium transition-all sm:py-1.5 ${
+                      maxDownloads === option.value
+                        ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Flame className="size-3.5" aria-hidden />
-                Se autodestruye en
+                Caduca en
               </span>
               <div
                 role="radiogroup"
@@ -289,9 +359,29 @@ export default function Home() {
 
         {/* ── Lista ──────────────────────────────────────────────────── */}
         <section aria-label="Ficheros activos" className="mt-10 sm:mt-12">
-          <h2 className="mb-3 px-1 text-sm font-medium text-muted-foreground">
-            Ficheros activos {files.length > 0 && `(${files.length})`}
-          </h2>
+          <div className="mb-3 flex min-h-9 items-center justify-between gap-2 px-1">
+            <h2 className="text-sm font-medium text-muted-foreground">
+              Ficheros activos {files.length > 0 && `(${files.length})`}
+            </h2>
+
+            {selected.size > 0 && (
+              <div className="flex items-center gap-1">
+                <Button size="sm" className="h-9" onClick={downloadZip}>
+                  <Download className="size-4" aria-hidden />
+                  Descargar {selected.size} en ZIP
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-9"
+                  aria-label="Quitar la selección"
+                  onClick={() => setSelected(new Set())}
+                >
+                  <X className="size-4" aria-hidden />
+                </Button>
+              </div>
+            )}
+          </div>
 
           {loadingFiles ? (
             <ul className="space-y-2">
@@ -314,6 +404,8 @@ export default function Home() {
                   key={file.id}
                   file={file}
                   now={now}
+                  selected={selected.has(file.id)}
+                  onToggle={toggleSelected}
                   onDeleted={(id) => {
                     setFiles((prev) => prev.filter((f) => f.id !== id));
                     refresh();

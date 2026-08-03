@@ -31,6 +31,7 @@ import {
   generateId,
   isValidId,
   sanitizeFilename,
+  sanitizeUploader,
   writeMeta,
   type FileMeta,
 } from "@/lib/store";
@@ -53,6 +54,7 @@ export interface UploadSession {
   totalParts: number;
   createdAt: number;
   sessionExpiresAt: number;
+  uploadedBy?: string;
 }
 
 function entryDir(id: string): string {
@@ -89,6 +91,7 @@ export interface CreateSessionInput {
   mimeType?: string;
   ttlHours?: unknown;
   maxDownloads?: unknown;
+  uploadedBy?: unknown;
 }
 
 export async function createSession(input: CreateSessionInput): Promise<UploadSession> {
@@ -106,6 +109,7 @@ export async function createSession(input: CreateSessionInput): Promise<UploadSe
     totalParts: Math.max(1, Math.ceil(input.size / CHUNK_SIZE)),
     createdAt: now,
     sessionExpiresAt: now + SESSION_TTL,
+    uploadedBy: sanitizeUploader(input.uploadedBy),
   };
 
   await mkdir(partsDir(id), { recursive: true });
@@ -178,6 +182,7 @@ export async function completeSession(session: UploadSession): Promise<CompleteR
     expiresAt: now + session.ttlHours * 60 * 60 * 1000,
     downloadCount: 0,
     maxDownloads: session.maxDownloads,
+    uploadedBy: session.uploadedBy,
   };
 
   await writeMeta(meta);

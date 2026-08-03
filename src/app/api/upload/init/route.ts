@@ -20,7 +20,14 @@ export async function POST(request: NextRequest) {
   const limit = rateLimit(`upload-init:${clientIp(request)}`, 30, 60 * 60 * 1000);
   if (!limit.allowed) return tooManyRequests(limit);
 
-  let body: { filename?: unknown; size?: unknown; mimeType?: unknown; ttlHours?: unknown; maxDownloads?: unknown };
+  let body: {
+    filename?: unknown;
+    size?: unknown;
+    mimeType?: unknown;
+    ttlHours?: unknown;
+    maxDownloads?: unknown;
+    uploadedBy?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -56,6 +63,7 @@ export async function POST(request: NextRequest) {
     mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
     ttlHours: body.ttlHours,
     maxDownloads: body.maxDownloads,
+    uploadedBy: body.uploadedBy,
   });
 
   return NextResponse.json({
