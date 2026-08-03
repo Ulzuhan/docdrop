@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ServiceWorkerRegistration } from "@/components/service-worker";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -48,6 +49,7 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <Toaster position="top-center" richColors closeButton />
+          <ServiceWorkerRegistration />
         </ThemeProvider>
       </body>
     </html>

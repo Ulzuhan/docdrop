@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cleanup } from "@/lib/store";
+import { cleanupSessions } from "@/lib/upload-session";
 import { requireSession } from "@/lib/auth";
 
 /**
@@ -13,6 +14,15 @@ export async function POST() {
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
+  // Primero las subidas por trozos abandonadas: liberan el espacio que tenían
+  // reservado y dejan de estar protegidas del barrido general.
+  const abandoned = await cleanupSessions();
   const deleted = await cleanup();
-  return NextResponse.json({ deleted, count: deleted.length, timestamp: Date.now() });
+
+  return NextResponse.json({
+    deleted,
+    abandonedUploads: abandoned,
+    count: deleted.length + abandoned.length,
+    timestamp: Date.now(),
+  });
 }

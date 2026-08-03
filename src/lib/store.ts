@@ -185,6 +185,22 @@ export async function listMeta(): Promise<FileMeta[]> {
   return metas;
 }
 
+/**
+ * ¿La entrada corresponde a una subida por trozos todavía retomable?
+ *
+ * Se lee session.json a mano en vez de usar el módulo de sesiones para no crear una
+ * dependencia circular entre ambos.
+ */
+async function hasLiveSession(id: string, now: number): Promise<boolean> {
+  try {
+    const raw = await readFile(join(entryDir(id), "session.json"), "utf-8");
+    const session = JSON.parse(raw) as { sessionExpiresAt?: number };
+    return typeof session.sessionExpiresAt === "number" && session.sessionExpiresAt > now;
+  } catch {
+    return false;
+  }
+}
+
 /** Borra lo caducado y lo agotado. Devuelve los ids eliminados. */
 export async function cleanup(): Promise<string[]> {
   if (!existsSync(UPLOAD_DIR)) return [];
@@ -201,6 +217,10 @@ export async function cleanup(): Promise<string[]> {
     if (!isValidId(id)) continue; // ignora restos ajenos al formato
     const meta = await readMeta(id);
     if (!meta) {
+      // Sin meta.json puede ser una subida por trozos todavía en marcha: mientras su
+      // sesión siga viva no se toca, o se borraría una subida de varios GB a medias.
+      if (await hasLiveSession(id, now)) continue;
+
       // Directorio huérfano (subida interrumpida): se borra si ya no está caliente.
       try {
         const s = await stat(entryDir(id));

@@ -10,14 +10,11 @@ import { SiteHeader } from "@/components/site-header";
 import { CopyLinkButton } from "@/components/copy-link-button";
 import { FileRow, type FileInfo } from "@/components/file-row";
 import { formatBytes, formatRemaining } from "@/lib/format";
-
-interface UploadResult {
-  id: string;
-  originalName: string;
-  size: number;
-  expiresAt: number;
-  downloadUrl: string;
-}
+import {
+  uploadFileInChunks,
+  type UploadHandle,
+  type UploadResult,
+} from "@/lib/chunked-upload";
 
 const TTL_OPTIONS = [
   { hours: 1, label: "1 h" },
@@ -30,6 +27,9 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [uploadedBytes, setUploadedBytes] = useState(0);
+  const [totalBytes, setTotalBytes] = useState(0);
+  const [resumedNotice, setResumedNotice] = useState(false);
   const [uploadingName, setUploadingName] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
   const [ttl, setTtl] = useState(24);
@@ -41,7 +41,7 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const uploadRef = useRef<UploadHandle | null>(null);
   const dragDepth = useRef(0);
 
   const refresh = useCallback(() => setReloadToken((n) => n + 1), []);
@@ -87,64 +87,88 @@ export default function Home() {
     async (file: File) => {
       setUploading(true);
       setProgress(0);
+      setUploadedBytes(0);
+      setTotalBytes(file.size);
       setUploadingName(file.name);
       setResult(null);
 
+      // La subida se parte en trozos: sortea el tope de 500 MiB por petición que
+      // impone Cloudflare y, sobre todo, permite retomarla si la red se corta.
+      const handle = uploadFileInChunks(file, {
+        ttlHours: ttl,
+        onProgress: ({ loaded, total, resumed }) => {
+          setUploadedBytes(loaded);
+          setProgress(total > 0 ? Math.round((loaded / total) * 100) : 0);
+          if (resumed) setResumedNotice(true);
+        },
+      });
+      uploadRef.current = handle;
+
       try {
-        const xhr = new XMLHttpRequest();
-        xhrRef.current = xhr;
-
-        xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
-        });
-
-        const response = await new Promise<UploadResult>((resolve, reject) => {
-          const fail = (fallback: string) => {
-            try {
-              reject(new Error(JSON.parse(xhr.responseText).error || fallback));
-            } catch {
-              reject(new Error(fallback));
-            }
-          };
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                resolve(JSON.parse(xhr.responseText));
-              } catch {
-                reject(new Error("Respuesta del servidor no válida"));
-              }
-            } else if (xhr.status === 401) {
-              window.location.href = "/login";
-            } else {
-              fail(`La subida falló (${xhr.status})`);
-            }
-          };
-          xhr.onerror = () => reject(new Error("Error de red"));
-          xhr.onabort = () => reject(new Error("Subida cancelada"));
-
-          // El fichero va como cuerpo crudo, no como multipart: así el servidor lo
-          // escribe a disco por streaming en vez de cargarlo entero en memoria.
-          xhr.open("POST", "/api/upload");
-          xhr.setRequestHeader("x-filename", encodeURIComponent(file.name));
-          xhr.setRequestHeader("x-ttl-hours", String(ttl));
-          xhr.setRequestHeader("x-max-downloads", "0");
-          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-          xhr.send(file);
-        });
-
+        const response = await handle.promise;
         setResult(response);
         toast.success("Fichero subido", { description: response.originalName });
         refresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : "La subida falló";
-        if (message !== "Subida cancelada") toast.error(message);
+        if (message === "UNAUTHORIZED") {
+          window.location.href = "/login";
+          return;
+        }
+        if (message !== "ABORTED") {
+          toast.error(message, {
+            description: "Vuelve a elegir el mismo fichero para continuar donde iba.",
+          });
+        }
       } finally {
-        xhrRef.current = null;
+        uploadRef.current = null;
         setUploading(false);
+        setResumedNotice(false);
       }
     },
     [ttl, refresh]
   );
+
+  // Referencia estable para poder lanzar la subida desde el efecto de "compartir"
+  // sin encadenarlo a las dependencias de uploadFile.
+  const uploadFileRef = useRef(uploadFile);
+  useEffect(() => {
+    uploadFileRef.current = uploadFile;
+  }, [uploadFile]);
+
+  // Fichero llegado desde el menú "Compartir" del móvil: el service worker lo deja
+  // guardado y redirige aquí con ?shared=1.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shared = params.get("shared");
+    if (!shared) return;
+
+    // Se limpia la URL para que al recargar no se reintente la misma subida.
+    window.history.replaceState({}, "", "/");
+
+    if (shared === "error") {
+      toast.error("No se pudo recibir el fichero compartido");
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/__shared-file__");
+        if (!res.ok) return;
+        const name = decodeURIComponent(res.headers.get("X-Shared-Filename") || "compartido");
+        const blob = await res.blob();
+        if (cancelled) return;
+        void uploadFileRef.current?.(new File([blob], name, { type: blob.type }));
+      } catch {
+        toast.error("No se pudo leer el fichero compartido");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleFiles(list: FileList | null) {
     const file = list?.[0];
@@ -237,14 +261,26 @@ export default function Home() {
                       size="icon"
                       className="size-8 shrink-0"
                       aria-label="Cancelar subida"
-                      onClick={() => xhrRef.current?.abort()}
+                      onClick={() => uploadRef.current?.abort()}
                     >
                       <X className="size-4" aria-hidden />
                     </Button>
                   </div>
                   <Progress value={progress} className="h-2" />
-                  <p className="text-center text-sm tabular-nums text-muted-foreground">
-                    {progress}%
+                  <div className="flex items-center justify-between text-sm tabular-nums text-muted-foreground">
+                    <span>
+                      {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)}
+                    </span>
+                    <span>{progress}%</span>
+                  </div>
+                  {resumedNotice && (
+                    <p className="text-center text-xs text-success">
+                      Continuando una subida anterior
+                    </p>
+                  )}
+                  <p className="text-center text-xs text-muted-foreground">
+                    Se envía por partes: si se corta, vuelve a elegir el mismo fichero y
+                    sigue donde iba.
                   </p>
                 </div>
               ) : (

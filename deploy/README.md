@@ -100,9 +100,25 @@ corta al superar el tamaño máximo.
 
 Por eso el servicio arranca con `node start.js` y no con `node server.js`.
 
-**Ojo con los túneles**: el plan gratuito de Cloudflare limita el cuerpo de cada
-petición a 100 MB, así que los ficheros grandes hay que subirlos por la red local
-o por Tailscale, no a través de un quick tunnel.
+### Subida por trozos
+
+Para ficheros grandes el navegador no envía una sola petición: parte el fichero en
+trozos de 32 MiB y manda cada uno por separado (`/api/upload/init`,
+`/api/upload/[id]/part/[n]`, `/api/upload/[id]/complete`). Cada trozo se escribe
+directamente en su posición del fichero final, así que no hay fase de ensamblado.
+
+Esto resuelve dos cosas a la vez:
+
+- **El tope por petición de los proxies.** Medido contra un quick tunnel de
+  Cloudflare: 500 MiB pasa, 512 MiB devuelve 413 al instante. Con trozos de 32 MiB
+  da igual lo que ocupe el fichero. Comprobado subiendo 600 MB por el túnel, que
+  en una sola petición daba 413.
+- **Los cortes de red.** El cliente guarda el identificador de la subida y consulta
+  `GET /api/upload/[id]` para saber qué trozos faltan, así que retoma donde iba.
+  Volver a elegir el mismo fichero continúa la subida en lugar de reiniciarla. Las
+  sesiones a medias se pueden retomar durante 24 h y luego las borra el cleanup.
+
+Las descargas no tienen ese tope: 600 MB bajaron por el mismo túnel a 30 MB/s.
 
 ## Purga periódica
 
