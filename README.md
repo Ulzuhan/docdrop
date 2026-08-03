@@ -18,6 +18,34 @@ The problem it was built for: passing a 7 GB GoPro video between phones and lapt
 
 ## Quick start
 
+### Docker
+
+```bash
+docker run -d --name docdrop \
+  -p 127.0.0.1:3010:3010 \
+  -v docdrop-data:/data \
+  ghcr.io/ulzuhan/docdrop:latest
+```
+
+Or with Compose, using the [`compose.yaml`](compose.yaml) in this repo:
+
+```bash
+docker compose up -d
+```
+
+Uploads live in the `/data` volume, so replacing the container never loses them.
+The image runs as an unprivileged user, ships a healthcheck, and is built for
+`linux/amd64` and `linux/arm64`.
+
+To set a password:
+
+```bash
+docker run --rm ghcr.io/ulzuhan/docdrop:latest node scripts/set-password.mjs
+# put the two lines it prints in the container environment and restart
+```
+
+### From source
+
 ```bash
 npm install
 npm run build     # builds and prepares the standalone output

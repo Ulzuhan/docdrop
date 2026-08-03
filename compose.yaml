@@ -1,0 +1,34 @@
+# Minimal deployment. Uploaded files live in a named volume, so replacing the
+# container never loses them.
+services:
+  docdrop:
+    image: ghcr.io/ulzuhan/docdrop:latest
+    # To build from a checkout instead of pulling the published image:
+    # build: .
+    container_name: docdrop
+    restart: unless-stopped
+    # Published on loopback only: put a tunnel or a reverse proxy in front rather
+    # than exposing the port to the whole network.
+    ports:
+      - "127.0.0.1:3010:3010"
+    volumes:
+      - docdrop-data:/data
+    environment:
+      # Optional. Without a password the service runs OPEN: anyone who reaches it
+      # can upload and see the full listing. Generate these with:
+      #   docker run --rm ghcr.io/ulzuhan/docdrop:latest node scripts/set-password.mjs
+      # DOCDROP_PASSWORD_HASH: ""
+      # DOCDROP_SESSION_SECRET: ""
+      DOCDROP_MAX_FILE_BYTES: "10737418240"   # 10 GB per file
+      DOCDROP_MAX_TOTAL_BYTES: "21474836480"  # 20 GB total
+    # Hardening: the app only needs to read its own code and write to /data.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  docdrop-data:

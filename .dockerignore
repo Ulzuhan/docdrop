@@ -1,0 +1,17 @@
+# Never send uploaded files to the build context: they are user data, they are huge,
+# and they would slow every build down.
+.docdrop-uploads
+data
+
+node_modules
+.next
+.git
+.github
+
+*.log
+.env
+.env.local
+.env*.local
+
+deploy
+README.md
