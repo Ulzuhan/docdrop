@@ -1,4 +1,9 @@
-# Despliegue de DocDrop
+# Despliegue aislado (opcional)
+
+Esta carpeta contiene lo necesario para correr DocDrop como servicio de sistema con
+un usuario propio y un sandbox estricto. **No hace falta para usarlo**: con
+`npm run start` (o un servicio de usuario, ver el README principal) es suficiente.
+Merece la pena si va a estar expuesto a menudo o desatendido.
 
 El servicio escucha solo en `127.0.0.1`. Para usarlo desde fuera se levanta un
 túnel temporal y se cierra al terminar:
