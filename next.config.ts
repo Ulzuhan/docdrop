@@ -1,12 +1,12 @@
 import type { NextConfig } from "next";
 
 /**
- * Cabeceras de seguridad. Este servicio se publica en internet con Tailscale Funnel,
- * que no aporta WAF ni filtrado: todo lo que proteja tiene que salir de aquí.
+ * Security headers. This service may sit behind a plain tunnel with no WAF and no
+ * filtering of its own, so whatever protects it has to come from here.
  */
 const securityHeaders = [
-  // Sin recursos de terceros: la app no carga nada externo (las fuentes se
-  // autoalojan en el build). 'unsafe-inline' en estilos lo exige Next.
+  // No third-party resources: the app loads nothing external (fonts are
+  // self-hosted at build time). 'unsafe-inline' for styles is required by Next.
   {
     key: "Content-Security-Policy",
     value: [
@@ -28,26 +28,26 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "no-referrer" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-  // Un año de HSTS: en Funnel el acceso siempre es HTTPS.
+  // One year of HSTS: behind a tunnel access is always HTTPS.
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
 
 const nextConfig: NextConfig = {
-  // `serverExternalPackages` sirve para excluir dependencias npm del bundling; listar
-  // ahí módulos nativos ("fs", "path", "crypto") no hacía nada, y menos aún subir el
-  // límite de subida. El tamaño lo controla /api/upload, que escribe por streaming.
+  // Note: `serverExternalPackages` excludes npm dependencies from bundling. Listing
+  // native modules ("fs", "path", "crypto") there does nothing at all, and certainly
+  // does not raise any upload limit — size is enforced by /api/upload, which streams.
 
-  // Fija la raíz del workspace: hay un package.json suelto en el home que hacía que
-  // Next infiriera mal la raíz y avisara en cada build.
+  // Pins the workspace root, so a stray package.json further up the tree cannot make
+  // Next infer the wrong one and warn on every build.
   turbopack: {
     root: __dirname,
   },
 
-  // No anunciar la tecnología del servidor a quien escanee.
+  // Do not advertise the server technology to whoever scans it.
   poweredByHeader: false,
 
-  // Empaquetado autónomo: en producción se despliega solo .next/standalone, sin código
-  // fuente ni dependencias de desarrollo. Menos superficie que copiar el proyecto entero.
+  // Standalone output: production deploys only .next/standalone, with no source and
+  // no dev dependencies. Less surface than copying the whole project.
   output: "standalone",
 
   async headers() {

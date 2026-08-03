@@ -10,9 +10,9 @@ const noopSubscribe = () => () => {};
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
 
-  // El tema real solo se conoce en el cliente. useSyncExternalStore devuelve false
-  // durante el renderizado en servidor y true tras hidratar, así que se reserva el
-  // hueco del icono sin desajustes de hidratación y sin setState dentro de un efecto.
+  // The real theme is only known on the client. useSyncExternalStore returns false
+  // during server rendering and true after hydration, so the icon slot is reserved
+  // with no hydration mismatch and no setState inside an effect.
   const mounted = useSyncExternalStore(
     noopSubscribe,
     () => true,
@@ -23,7 +23,7 @@ export function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon"
-      aria-label={resolvedTheme === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
+      aria-label={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
       className="size-10 rounded-full text-muted-foreground hover:text-foreground"
     >

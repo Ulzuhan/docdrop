@@ -1,10 +1,11 @@
 /**
- * Límite de peticiones por IP, en memoria.
+ * Per-IP rate limiting, in memory.
  *
- * Tailscale Funnel no trae WAF ni rate limiting (a diferencia de Cloudflare), así que
- * esto es lo único que frena la fuerza bruta contra el login y el abuso del endpoint
- * de subida. Vive en memoria: se reinicia con el proceso y no sirve para varias
- * instancias, pero para un servicio de un solo nodo cumple.
+ * A tunnel in front of this service brings no WAF and no rate limiting of its own,
+ * so this is the only thing standing between the login and a brute-force attempt, or
+ * between the upload endpoint and abuse. It lives in memory: it resets with the
+ * process and does not work across instances, but for a single-node service it does
+ * the job.
  */
 
 interface Bucket {
@@ -15,17 +16,17 @@ const buckets = new Map<string, Bucket>();
 let lastSweep = Date.now();
 
 /**
- * IP del cliente para contabilizar el límite.
+ * Client IP used to account for the limit.
  *
- * Comprobado contra el proxy real de Tailscale (serve y funnel): SOBRESCRIBE
- * X-Forwarded-For con la IP de origen y descarta el valor que mande el cliente, así
- * que la cabecera es de fiar cuando hay proxy delante. Se toma el último elemento de
- * la lista, que es siempre el que escribe el proxy más cercano.
+ * Verified against a real Tailscale proxy (both serve and funnel): it OVERWRITES
+ * X-Forwarded-For with the origin IP and discards whatever the client sent, so the
+ * header can be trusted when there is a proxy in front. The last element of the list
+ * is taken, which is always the one written by the closest proxy.
  *
- * No se usa X-Real-Ip como alternativa: Tailscale NO la limpia y el cliente puede
- * inventarla, lo que permitiría cambiar de identidad en cada petición y esquivar el
- * límite. Sin proxy (acceso directo al puerto), todas las peticiones caen en el mismo
- * cubo, que es el comportamiento prudente.
+ * X-Real-Ip is deliberately not used as a fallback: Tailscale does NOT strip it and
+ * a client can make it up, which would allow changing identity on every request and
+ * dodging the limit. With no proxy (direct access to the port) every request falls
+ * into the same bucket, which is the cautious behaviour.
  */
 export function clientIp(request: Request): string {
   const xff = request.headers.get("x-forwarded-for");
@@ -38,7 +39,7 @@ export function clientIp(request: Request): string {
 }
 
 function sweep(now: number) {
-  // Barrido perezoso para que el Map no crezca sin límite con IPs de un solo uso.
+  // Lazy sweep so the Map does not grow unbounded with one-off IPs.
   if (now - lastSweep < 60_000) return;
   lastSweep = now;
   for (const [key, bucket] of buckets) {
@@ -55,8 +56,8 @@ export interface RateLimitResult {
 }
 
 /**
- * Ventana deslizante: `limit` peticiones por `windowMs` para una clave dada
- * (normalmente "accion:ip").
+ * Sliding window: `limit` requests per `windowMs` for a given key (usually
+ * "action:ip").
  */
 export function rateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
   const now = Date.now();
@@ -80,7 +81,7 @@ export function rateLimit(key: string, limit: number, windowMs: number): RateLim
   return { allowed: true, remaining: limit - bucket.hits.length, retryAfterSeconds: 0 };
 }
 
-/** Respuesta 429 con Retry-After. */
+/** 429 response with Retry-After. */
 export function tooManyRequests(result: RateLimitResult): Response {
   return Response.json(
     { error: "Too many requests. Slow down." },
@@ -88,7 +89,7 @@ export function tooManyRequests(result: RateLimitResult): Response {
   );
 }
 
-/** Olvida los intentos de una clave (se llama tras un login correcto). */
+/** Forgets the attempts for a key (called after a successful login). */
 export function resetLimit(key: string): void {
   buckets.delete(key);
 }

@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button";
 const noopSubscribe = () => () => {};
 
 /**
- * Comparte el enlace con el menú del sistema.
+ * Shares the link through the system menu.
  *
- * En el móvil esto es la diferencia entre "copia y busca dónde pegarlo" y "toca
- * compartir, elige WhatsApp". Solo se muestra si el navegador lo soporta; en
- * escritorio se sigue usando el botón de copiar.
+ * On a phone this is the difference between "copy it and go find where to paste it"
+ * and "tap share, pick a chat app". Only rendered when the browser supports it; on
+ * desktop the copy button remains the way to go.
  */
 export function ShareButton({
   path,
@@ -36,9 +36,9 @@ export function ShareButton({
     try {
       await navigator.share({ title: title || "DocDrop", text: title, url });
     } catch (error) {
-      // Cancelar el diálogo lanza AbortError: no es un fallo que reportar.
+      // Dismissing the dialog throws AbortError: not a failure worth reporting.
       if ((error as Error)?.name !== "AbortError") {
-        toast.error("No se pudo compartir");
+        toast.error("Could not share");
       }
     }
   }
@@ -48,7 +48,7 @@ export function ShareButton({
       variant="ghost"
       size="icon"
       onClick={share}
-      aria-label="Compartir enlace"
+      aria-label="Share link"
       className={className ?? "size-9"}
     >
       <Share2 className="size-4" aria-hidden />

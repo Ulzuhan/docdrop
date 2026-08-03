@@ -1,31 +1,31 @@
 /**
- * Generador de ZIP por streaming, sin dependencias.
+ * Streaming ZIP builder, no dependencies.
  *
- * DECISIONES:
+ * DECISIONS:
  *
- * - **Sin comprimir** (método "store"). Lo que se comparte aquí son vídeos y fotos,
- *   que ya vienen comprimidos: pasarlos por deflate gastaría CPU para no ahorrar
- *   nada. Así el ZIP sale a velocidad de disco y solo sirve para agrupar.
+ * - **No compression** ("store" method). What gets shared here is video and photos,
+ *   already compressed: running them through deflate would burn CPU to save nothing.
+ *   This way the archive streams out at disk speed and merely groups files together.
  *
- * - **Descriptor de datos** (bit 3 de las banderas). Permite escribir el CRC y los
- *   tamaños DESPUÉS del contenido, así que no hay que leer cada fichero dos veces ni
- *   cargarlo en memoria para calcular el CRC por adelantado.
+ * - **Data descriptors** (flag bit 3). Lets the CRC and sizes be written AFTER the
+ *   content, so there is no need to read each file twice or hold it in memory just
+ *   to compute the CRC up front.
  *
- * - **ZIP64 cuando hace falta**. Un vídeo de 7 GB no cabe en los campos de 32 bits
- *   del formato clásico; sin esto el ZIP saldría corrupto justo en el caso de uso
- *   para el que existe este servicio.
+ * - **ZIP64 when needed**. A 7 GB video does not fit in the 32-bit fields of the
+ *   classic format; without this the archive would come out corrupt in exactly the
+ *   use case this service exists for.
  */
 import { createReadStream } from "fs";
 import { Readable } from "stream";
 
 export interface ZipEntry {
-  /** Nombre dentro del ZIP. */
+  /** Name inside the archive. */
   name: string;
-  /** Ruta en disco del contenido. */
+  /** Path to the content on disk. */
   path: string;
-  /** Tamaño conocido de antemano, para poder decidir si hace falta ZIP64. */
+  /** Size known up front, so we can decide whether ZIP64 is needed. */
   size: number;
-  /** Fecha del fichero, para los metadatos del ZIP. */
+  /** File date, for the archive metadata. */
   mtime: Date;
 }
 
@@ -46,9 +46,9 @@ function crc32Update(crc: number, buf: Buffer): number {
   return c;
 }
 
-// ─── Fecha en formato MS-DOS ─────────────────────────────────────────
+// ─── MS-DOS date format ──────────────────────────────────────────────
 function dosDateTime(date: Date): { time: number; date: number } {
-  // El formato solo llega hasta 1980 y guarda los segundos en pasos de dos.
+  // The format only goes back to 1980 and stores seconds in steps of two.
   const year = Math.max(1980, date.getFullYear());
   return {
     time:
@@ -60,7 +60,7 @@ function dosDateTime(date: Date): { time: number; date: number } {
 const ZIP64_THRESHOLD = 0xfffffffe;
 
 /**
- * Construye el ZIP como un stream. El consumidor solo tiene que enviarlo tal cual.
+ * Builds the archive as a stream. The caller just pipes it out as-is.
  */
 export function createZipStream(entries: ZipEntry[]): Readable {
   type Placed = ZipEntry & { offset: number; crc: number; zip64: boolean };
@@ -73,26 +73,26 @@ export function createZipStream(entries: ZipEntry[]): Readable {
       const { time, date } = dosDateTime(entry.mtime);
       const zip64 = entry.size > ZIP64_THRESHOLD;
 
-      // ── Cabecera local ──────────────────────────────────────────
+      // ── Local file header ───────────────────────────────────────
       const local = Buffer.alloc(30);
-      local.writeUInt32LE(0x04034b50, 0); // firma
-      local.writeUInt16LE(zip64 ? 45 : 20, 4); // versión necesaria
-      // bit 3: tamaños y CRC van en el descriptor · bit 11: nombre en UTF-8
+      local.writeUInt32LE(0x04034b50, 0); // signature
+      local.writeUInt16LE(zip64 ? 45 : 20, 4); // version needed
+      // bit 3: sizes and CRC live in the descriptor · bit 11: UTF-8 name
       local.writeUInt16LE(0x0008 | 0x0800, 6);
-      local.writeUInt16LE(0, 8); // método: store
+      local.writeUInt16LE(0, 8); // method: store
       local.writeUInt16LE(time, 10);
       local.writeUInt16LE(date, 12);
-      local.writeUInt32LE(0, 14); // CRC (va en el descriptor)
-      local.writeUInt32LE(0, 18); // comprimido (idem)
-      local.writeUInt32LE(0, 22); // sin comprimir (idem)
+      local.writeUInt32LE(0, 14); // CRC (in the descriptor)
+      local.writeUInt32LE(0, 18); // compressed size (idem)
+      local.writeUInt32LE(0, 22); // uncompressed size (idem)
       local.writeUInt16LE(nameBuf.length, 26);
-      local.writeUInt16LE(0, 28); // sin campos extra
+      local.writeUInt16LE(0, 28); // no extra fields
 
       yield Buffer.concat([local, nameBuf]);
       const entryOffset = offset;
       offset += local.length + nameBuf.length;
 
-      // ── Contenido ───────────────────────────────────────────────
+      // ── Content ─────────────────────────────────────────────────
       let crc = 0xffffffff;
       let written = 0;
       for await (const chunk of createReadStream(entry.path)) {
@@ -104,8 +104,8 @@ export function createZipStream(entries: ZipEntry[]): Readable {
       crc = (crc ^ 0xffffffff) >>> 0;
       offset += written;
 
-      // ── Descriptor de datos ─────────────────────────────────────
-      // Con ZIP64 los tamaños ocupan 8 bytes en vez de 4.
+      // ── Data descriptor ─────────────────────────────────────────
+      // With ZIP64 the sizes take 8 bytes instead of 4.
       const descriptor = Buffer.alloc(zip64 ? 24 : 16);
       descriptor.writeUInt32LE(0x08074b50, 0);
       descriptor.writeUInt32LE(crc, 4);
@@ -122,27 +122,27 @@ export function createZipStream(entries: ZipEntry[]): Readable {
       placed.push({ ...entry, size: written, offset: entryOffset, crc, zip64 });
     }
 
-    // ── Directorio central ────────────────────────────────────────
+    // ── Central directory ─────────────────────────────────────────
     const centralStart = offset;
     for (const entry of placed) {
       const nameBuf = Buffer.from(entry.name, "utf8");
       const { time, date } = dosDateTime(entry.mtime);
-      // Hace falta el campo extra ZIP64 si el tamaño o el desplazamiento no caben.
+      // The ZIP64 extra field is needed when the size or the offset do not fit.
       const needsExtra = entry.zip64 || entry.offset > ZIP64_THRESHOLD;
       const extra = needsExtra ? Buffer.alloc(28) : Buffer.alloc(0);
 
       if (needsExtra) {
-        extra.writeUInt16LE(0x0001, 0); // etiqueta ZIP64
-        extra.writeUInt16LE(24, 2); // tamaño del campo
-        extra.writeBigUInt64LE(BigInt(entry.size), 4); // sin comprimir
-        extra.writeBigUInt64LE(BigInt(entry.size), 12); // comprimido
-        extra.writeBigUInt64LE(BigInt(entry.offset), 20); // desplazamiento
+        extra.writeUInt16LE(0x0001, 0); // ZIP64 tag
+        extra.writeUInt16LE(24, 2); // field size
+        extra.writeBigUInt64LE(BigInt(entry.size), 4); // uncompressed
+        extra.writeBigUInt64LE(BigInt(entry.size), 12); // compressed
+        extra.writeBigUInt64LE(BigInt(entry.offset), 20); // offset
       }
 
       const central = Buffer.alloc(46);
       central.writeUInt32LE(0x02014b50, 0);
-      central.writeUInt16LE(45, 4); // versión que lo creó
-      central.writeUInt16LE(needsExtra ? 45 : 20, 6); // versión necesaria
+      central.writeUInt16LE(45, 4); // version made by
+      central.writeUInt16LE(needsExtra ? 45 : 20, 6); // version needed
       central.writeUInt16LE(0x0008 | 0x0800, 8);
       central.writeUInt16LE(0, 10); // store
       central.writeUInt16LE(time, 12);
@@ -152,10 +152,10 @@ export function createZipStream(entries: ZipEntry[]): Readable {
       central.writeUInt32LE(needsExtra ? 0xffffffff : entry.size, 24);
       central.writeUInt16LE(nameBuf.length, 28);
       central.writeUInt16LE(extra.length, 30);
-      central.writeUInt16LE(0, 32); // sin comentario
-      central.writeUInt16LE(0, 34); // disco 0
-      central.writeUInt16LE(0, 36); // atributos internos
-      central.writeUInt32LE(0, 38); // atributos externos
+      central.writeUInt16LE(0, 32); // no comment
+      central.writeUInt16LE(0, 34); // disk 0
+      central.writeUInt16LE(0, 36); // internal attributes
+      central.writeUInt32LE(0, 38); // external attributes
       central.writeUInt32LE(needsExtra ? 0xffffffff : entry.offset, 42);
 
       yield Buffer.concat([central, nameBuf, extra]);
@@ -165,15 +165,15 @@ export function createZipStream(entries: ZipEntry[]): Readable {
     const centralSize = offset - centralStart;
     const needsZip64End = centralStart > ZIP64_THRESHOLD || placed.length > 0xfffe;
 
-    // ── Fin del directorio (ZIP64 si procede) ─────────────────────
+    // ── End of central directory (ZIP64 when applicable) ──────────
     if (needsZip64End) {
       const end64 = Buffer.alloc(56);
       end64.writeUInt32LE(0x06064b50, 0);
-      end64.writeBigUInt64LE(BigInt(44), 4); // tamaño del registro
+      end64.writeBigUInt64LE(BigInt(44), 4); // record size
       end64.writeUInt16LE(45, 12);
       end64.writeUInt16LE(45, 14);
-      end64.writeUInt32LE(0, 16); // disco
-      end64.writeUInt32LE(0, 20); // disco del directorio
+      end64.writeUInt32LE(0, 16); // disk
+      end64.writeUInt32LE(0, 20); // directory disk
       end64.writeBigUInt64LE(BigInt(placed.length), 24);
       end64.writeBigUInt64LE(BigInt(placed.length), 32);
       end64.writeBigUInt64LE(BigInt(centralSize), 40);
@@ -197,14 +197,14 @@ export function createZipStream(entries: ZipEntry[]): Readable {
     end.writeUInt16LE(Math.min(placed.length, 0xffff), 10);
     end.writeUInt32LE(Math.min(centralSize, 0xffffffff), 12);
     end.writeUInt32LE(needsZip64End ? 0xffffffff : centralStart, 16);
-    end.writeUInt16LE(0, 20); // sin comentario
+    end.writeUInt16LE(0, 20); // no comment
     yield end;
   }
 
   return Readable.from(generate());
 }
 
-/** Evita nombres repetidos dentro del ZIP: "clip.mp4", "clip (2).mp4"… */
+/** Avoids duplicate names inside the archive: "clip.mp4", "clip (2).mp4"… */
 export function uniqueNames(names: string[]): string[] {
   const seen = new Map<string, number>();
   return names.map((name) => {

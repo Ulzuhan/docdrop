@@ -13,11 +13,11 @@ import { UploaderNameField } from "@/components/uploader-name-field";
 const TTL_OPTIONS = [
   { hours: 1, label: "1 h" },
   { hours: 6, label: "6 h" },
-  { hours: 24, label: "1 día" },
-  { hours: 72, label: "3 días" },
+  { hours: 24, label: "1 day" },
+  { hours: 72, label: "3 days" },
 ];
 
-/** 0 = sin límite. Con límite, el fichero se borra al agotarlo. */
+/** 0 = no limit. With a limit, the file is deleted once it runs out. */
 const DOWNLOAD_OPTIONS = [
   { value: 0, label: "∞" },
   { value: 1, label: "1" },
@@ -58,9 +58,9 @@ export default function Home() {
   }, []);
 
   /**
-   * Descarga los seleccionados en un solo ZIP. Se navega en vez de usar fetch: así
-   * el navegador escribe directamente a disco en vez de acumularlo en memoria, que
-   * con varios GB sería inviable.
+   * Downloads the selected files as one archive. It navigates instead of using
+   * fetch, so the browser writes straight to disk rather than buffering in memory,
+   * which would be unworkable with several GB.
    */
   const downloadZip = useCallback(() => {
     const ids = [...selected].join(",");
@@ -69,7 +69,7 @@ export default function Home() {
     setSelected(new Set());
   }, [selected]);
 
-  // Reloj compartido por las cuentas atrás, en estado y no leído durante el render.
+  // Clock shared by the countdowns, kept in state and never read during render.
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(tick);
@@ -97,7 +97,7 @@ export default function Home() {
         setStorage(data.storage ?? null);
         setAuthEnabled(Boolean(data.authEnabled));
       } catch {
-        // Un fallo puntual de red no debe vaciar la lista ya pintada.
+        // A one-off network blip must not wipe the list already on screen.
       } finally {
         if (!cancelled) setLoadingFiles(false);
       }
@@ -111,8 +111,8 @@ export default function Home() {
     };
   }, [reloadToken]);
 
-  // Fichero llegado desde el menú "Compartir" del móvil: el service worker lo deja
-  // guardado y redirige aquí con ?shared=1.
+  // File arriving from the phone's "Share" menu: the service worker stores it and
+  // redirects here with ?shared=1.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const shared = params.get("shared");
@@ -120,7 +120,7 @@ export default function Home() {
     window.history.replaceState({}, "", "/");
 
     if (shared === "error") {
-      toast.error("No se pudo recibir el fichero compartido");
+      toast.error("Could not receive the shared file");
       return;
     }
 
@@ -133,7 +133,7 @@ export default function Home() {
         const blob = await res.blob();
         if (!cancelled) enqueue([new File([blob], name, { type: blob.type })]);
       } catch {
-        toast.error("No se pudo leer el fichero compartido");
+        toast.error("Could not read the shared file");
       }
     })();
 
@@ -142,7 +142,7 @@ export default function Home() {
     };
   }, [enqueue]);
 
-  /** Extrae los ficheros de un arrastre, entrando en las carpetas si las hay. */
+  /** Pulls the files out of a drop, walking into folders when there are any. */
   async function filesFromDrop(dataTransfer: DataTransfer): Promise<File[]> {
     const entries = Array.from(dataTransfer.items)
       .map((item) => (item.kind === "file" ? item.webkitGetAsEntry?.() : null))
@@ -161,7 +161,7 @@ export default function Home() {
       }
       if (entry.isDirectory) {
         const reader = (entry as FileSystemDirectoryEntry).createReader();
-        // readEntries devuelve como mucho 100 por llamada: hay que insistir.
+        // readEntries returns at most 100 per call: keep asking.
         for (;;) {
           const batch = await new Promise<FileSystemEntry[]>((resolve) =>
             reader.readEntries(resolve, () => resolve([]))
@@ -185,7 +185,7 @@ export default function Home() {
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Cerrar sesión"
+              aria-label="Log out"
               className="size-10 rounded-full text-muted-foreground hover:text-foreground"
               onClick={async () => {
                 await fetch("/api/auth/logout", { method: "POST" });
@@ -201,15 +201,15 @@ export default function Home() {
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-8 pb-safe sm:px-6 sm:pt-12">
         <div className="mb-8 text-center sm:mb-10">
           <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-            Comparte ficheros en segundos
+            Share files in seconds
           </h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground text-balance sm:text-base">
-            Súbelos, comparte el enlace y deja que se borren solos.
+            Upload them, share the link, let them delete themselves.
           </p>
         </div>
 
-        {/* ── Zona de subida ─────────────────────────────────────────── */}
-        <section aria-label="Subir ficheros">
+        {/* ── Upload area ────────────────────────────────────────────── */}
+        <section aria-label="Upload files">
           <div
             onDragEnter={(e) => {
               e.preventDefault();
@@ -219,8 +219,8 @@ export default function Home() {
             onDragOver={(e) => e.preventDefault()}
             onDragLeave={(e) => {
               e.preventDefault();
-              // Contador de profundidad: sin esto, arrastrar sobre un hijo dispara
-              // dragleave y el resaltado parpadea.
+              // Depth counter: without it, dragging over a child fires dragleave
+              // and the highlight flickers.
               dragDepth.current -= 1;
               if (dragDepth.current <= 0) setIsDragging(false);
             }}
@@ -252,7 +252,7 @@ export default function Home() {
               ref={folderInputRef}
               type="file"
               multiple
-              // @ts-expect-error atributo no estándar, soportado por los navegadores
+              // @ts-expect-error non-standard attribute, supported by browsers
               webkitdirectory=""
               className="sr-only"
               onChange={(e) => {
@@ -273,11 +273,11 @@ export default function Home() {
                 <FileUp className="size-6 sm:size-7" />
               </span>
               <span className="text-base font-medium sm:text-lg">
-                Toca para elegir ficheros
+Tap to choose files
               </span>
               <span className="text-sm text-muted-foreground">
-                <span className="hidden sm:inline">o arrástralos aquí · </span>
-                varios a la vez · hasta 10 GB cada uno
+                <span className="hidden sm:inline">or drag them here · </span>
+                several at once · up to 10 GB each
               </span>
             </button>
           </div>
@@ -291,7 +291,7 @@ export default function Home() {
                 onClick={() => folderInputRef.current?.click()}
               >
                 <FolderUp className="size-4" aria-hidden />
-                Carpeta
+                Folder
               </Button>
               <UploaderNameField />
             </div>
@@ -299,11 +299,11 @@ export default function Home() {
             <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Download className="size-3.5" aria-hidden />
-                Descargas
+                Downloads
               </span>
               <div
                 role="radiogroup"
-                aria-label="Número máximo de descargas"
+aria-label="Maximum number of downloads"
                 className="grid w-full grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1 sm:w-auto"
               >
                 {DOWNLOAD_OPTIONS.map((option) => (
@@ -312,7 +312,7 @@ export default function Home() {
                     role="radio"
                     aria-checked={maxDownloads === option.value}
                     aria-label={
-                      option.value === 0 ? "Sin límite" : `${option.value} descargas`
+                      option.value === 0 ? "No limit" : `${option.value} downloads`
                     }
                     onClick={() => setMaxDownloads(option.value)}
                     className={`rounded-lg px-3 py-2 text-sm font-medium transition-all sm:py-1.5 ${
@@ -328,11 +328,11 @@ export default function Home() {
 
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Flame className="size-3.5" aria-hidden />
-                Caduca en
+                Expires in
               </span>
               <div
                 role="radiogroup"
-                aria-label="Tiempo hasta la autodestrucción"
+aria-label="Time until self-destruction"
                 className="grid w-full grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1 sm:w-auto"
               >
                 {TTL_OPTIONS.map((option) => (
@@ -357,24 +357,24 @@ export default function Home() {
           <UploadQueue items={items} onCancel={cancel} onClearFinished={clearFinished} />
         </section>
 
-        {/* ── Lista ──────────────────────────────────────────────────── */}
-        <section aria-label="Ficheros activos" className="mt-10 sm:mt-12">
+        {/* ── Listing ────────────────────────────────────────────────── */}
+        <section aria-label="Active files" className="mt-10 sm:mt-12">
           <div className="mb-3 flex min-h-9 items-center justify-between gap-2 px-1">
             <h2 className="text-sm font-medium text-muted-foreground">
-              Ficheros activos {files.length > 0 && `(${files.length})`}
+              Active files {files.length > 0 && `(${files.length})`}
             </h2>
 
             {selected.size > 0 && (
               <div className="flex items-center gap-1">
                 <Button size="sm" className="h-9" onClick={downloadZip}>
                   <Download className="size-4" aria-hidden />
-                  Descargar {selected.size} en ZIP
+Download {selected.size} as ZIP
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="size-9"
-                  aria-label="Quitar la selección"
+aria-label="Clear selection"
                   onClick={() => setSelected(new Set())}
                 >
                   <X className="size-4" aria-hidden />
@@ -394,7 +394,7 @@ export default function Home() {
           ) : files.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border py-10 text-center">
               <p className="text-sm text-muted-foreground">
-                Todavía no hay nada. Los ficheros que subas aparecerán aquí.
+Nothing here yet. Files you upload will show up here.
               </p>
             </div>
           ) : (

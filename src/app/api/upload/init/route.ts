@@ -5,13 +5,13 @@ import { requireSession } from "@/lib/auth";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
- * POST /api/upload/init — abre una subida por trozos.
+ * POST /api/upload/init — opens a chunked upload.
  *
- * body: { filename, size, mimeType?, ttlHours?, maxDownloads? }
+ * body: { filename, size, mimeType?, ttlHours?, maxDownloads?, uploadedBy? }
  * → { uploadId, chunkSize, totalParts, received: [] }
  *
- * El límite por IP se aplica aquí y no en cada trozo: una subida de 7 GB son
- * cientos de peticiones de trozo, y contarlas todas agotaría el cupo enseguida.
+ * The per-IP limit is applied here rather than per chunk: a 7 GB upload is hundreds
+ * of chunk requests, and counting them all would burn through the quota instantly.
  */
 export async function POST(request: NextRequest) {
   const unauthorized = await requireSession();
@@ -47,8 +47,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File too large" }, { status: 413 });
   }
 
-  // La cuota se comprueba por adelantado: no tiene sentido dejar que suba media
-  // película para rechazarla al final.
+  // The quota is checked up front: no point letting half a film upload only to
+  // reject it at the end.
   const used = await usedBytes();
   if (used + size > MAX_TOTAL_BYTES) {
     return NextResponse.json(

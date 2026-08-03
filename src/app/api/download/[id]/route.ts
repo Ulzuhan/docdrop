@@ -15,20 +15,20 @@ import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 const GONE = { expired: "File expired", exhausted: "Max downloads reached" } as const;
 
 /**
- * GET /api/download/[id] — envía el fichero por streaming.
+ * GET /api/download/[id] — streams the file out.
  *
- * Cambios frente a la versión anterior:
- *  - readFile() cargaba el fichero entero en memoria; ahora va por streaming.
- *  - el contador de descargas se incrementa de forma serializada (ver claimDownload),
- *    antes dos descargas simultáneas podían saltarse el límite.
- *  - se admite Range, para poder reanudar descargas grandes; una petición Range de
- *    continuación no vuelve a contar como descarga nueva.
- *  - Content-Length sale del fichero real, no del tamaño guardado en meta.json.
+ * Notable behaviour:
+ *  - Streamed, not buffered: readFile() used to pull the whole file into memory.
+ *  - The download counter is incremented in a serialised way (see claimDownload);
+ *    two simultaneous downloads used to be able to slip past the limit.
+ *  - Range requests are supported, so large downloads can be resumed; a continuation
+ *    Range request does not count as a new download.
+ *  - Content-Length comes from the real file, not from the size stored in meta.json.
  */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/download/[id]">) {
-  // Ruta pública (el secreto es el id), pero con freno para que nadie use el servicio
-  // como cañón de ancho de banda ni intente enumerar ids a lo bruto. El límite es
-  // holgado porque una descarga con Range genera varias peticiones.
+  // Public route (the id is the secret), but rate-limited so nobody uses the service
+  // as a bandwidth cannon or tries to brute-force ids. The limit is generous because
+  // a Range download generates several requests.
   const limit = rateLimit(`download:${clientIp(request)}`, 240, 60_000);
   if (!limit.allowed) return tooManyRequests(limit);
 
@@ -38,9 +38,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  // ?inline=1 sirve el fichero para verlo en el navegador (un <video> reproduciendo
-  // en streaming, por ejemplo) en vez de forzar la descarga. Previsualizar no cuenta
-  // como descarga: sería absurdo que abrir la vista previa consumiera el cupo.
+  // ?inline=1 serves the file for viewing in the browser (a <video> streaming, for
+  // instance) instead of forcing a download. Previewing does not count as a download:
+  // it would be absurd for opening the preview to burn the quota.
   const inline = request.nextUrl.searchParams.get("inline") === "1";
 
   const range = request.headers.get("range");
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     return NextResponse.json({ error: "File data not found" }, { status: 404 });
   }
 
-  // Solo se sirve inline lo que no puede ejecutar guiones en nuestro origen.
+  // Only content that cannot run scripts in our origin is served inline.
   const serveInline = inline && isInlineSafe(meta.mimeType);
 
   const headers = new Headers({
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     "Cache-Control": "no-store",
   });
 
-  // ─── Petición parcial (Range) ──────────────────────────────────────
+  // ─── Partial request (Range) ───────────────────────────────────────
   if (range) {
     const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
     if (!match || (match[1] === "" && match[2] === "")) {
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     let start: number;
     let end: number;
     if (match[1] === "") {
-      // bytes=-N → los últimos N bytes
+      // bytes=-N → the last N bytes
       const suffix = Number(match[2]);
       start = Math.max(0, size - suffix);
       end = size - 1;
@@ -113,12 +113,12 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     });
   }
 
-  // ─── Envío completo ────────────────────────────────────────────────
+  // ─── Full transfer ─────────────────────────────────────────────────
   headers.set("Content-Length", String(size));
 
   const stream = createReadStream(blobPath(id));
-  // Cuando termina el envío, si esta era la última descarga permitida, se borra.
-  // Una previsualización no consume descargas, así que tampoco puede agotarlas.
+  // When the transfer ends, if this was the last allowed download, it is burned.
+  // A preview does not consume downloads, so it cannot exhaust them either.
   if (!inline) stream.on("close", () => void retireIfExhausted(id).catch(() => {}));
 
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Completa la salida standalone tras el build.
+ * Completes the standalone output after the build.
  *
- * `next build` deja en .next/standalone el servidor y sus dependencias, pero NO los
- * ficheros estáticos: hay que copiar .next/static y public a mano o la aplicación
- * arranca sin estilos ni JavaScript. Se ejecuta como postbuild.
+ * `next build` leaves the server and its dependencies in .next/standalone, but NOT
+ * the static assets: .next/static and public have to be copied by hand or the app
+ * starts with no styles and no JavaScript. Runs as a postbuild step.
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -13,7 +13,7 @@ const root = path.join(__dirname, "..");
 const standalone = path.join(root, ".next", "standalone");
 
 if (!fs.existsSync(standalone)) {
-  console.error("[docdrop] No hay salida standalone; ¿falta 'output: standalone' en next.config?");
+  console.error("[docdrop] No standalone output; is 'output: standalone' missing from next.config?");
   process.exit(1);
 }
 
@@ -27,8 +27,8 @@ function copyDir(from, to) {
 copyDir(path.join(root, ".next", "static"), path.join(standalone, ".next", "static"));
 copyDir(path.join(root, "public"), path.join(standalone, "public"));
 
-// El lanzador con los tiempos de espera ajustados viaja junto al servidor, para que
-// el despliegue solo tenga que copiar este directorio.
+// The launcher with the adjusted timeouts ships next to the server, so deployment
+// only has to copy this one directory.
 fs.copyFileSync(path.join(__dirname, "start.js"), path.join(standalone, "start.js"));
 
-console.log("[docdrop] standalone listo (estáticos + lanzador)");
+console.log("[docdrop] standalone ready (static assets + launcher)");

@@ -1,10 +1,10 @@
 /**
- * Cliente de subida por trozos, con reanudación.
+ * Resumable chunked upload client.
  *
- * El identificador de la subida se guarda en localStorage asociado a una huella del
- * fichero (nombre + tamaño + fecha de modificación). Si la subida se corta —pantalla
- * bloqueada, cambio de wifi a datos, pestaña cerrada— al volver a elegir el mismo
- * fichero se retoma donde iba en vez de empezar de cero.
+ * The upload id is kept in localStorage under a fingerprint of the file (name + size
+ * + last modified). If the upload is interrupted — screen locked, wifi switched to
+ * mobile data, tab closed — picking the same file again resumes where it left off
+ * instead of starting over.
  */
 
 export interface UploadResult {
@@ -21,10 +21,10 @@ export interface UploadHandle {
 }
 
 interface Progress {
-  /** Bytes confirmados por el servidor. */
+  /** Bytes confirmed by the server. */
   loaded: number;
   total: number;
-  /** True cuando se han reutilizado trozos de un intento anterior. */
+  /** True when chunks from a previous attempt were reused. */
   resumed: boolean;
 }
 
@@ -38,7 +38,7 @@ function rememberUpload(file: File, uploadId: string) {
   try {
     localStorage.setItem(fingerprint(file), uploadId);
   } catch {
-    // Modo privado o almacenamiento lleno: se pierde la reanudación, nada más.
+    // Private mode or full storage: resuming is lost, nothing else.
   }
 }
 
@@ -54,7 +54,7 @@ function forgetUpload(file: File) {
   try {
     localStorage.removeItem(fingerprint(file));
   } catch {
-    /* ignorado */
+    /* ignored */
   }
 }
 
@@ -65,11 +65,11 @@ async function jsonOrThrow(res: Response, fallback: string): Promise<never | Rec
 }
 
 /**
- * SHA-256 del trozo, para que el servidor pueda detectar corrupción.
+ * SHA-256 of the chunk, so the server can detect corruption.
  *
- * Devuelve null si no se puede calcular: crypto.subtle solo existe en contextos
- * seguros (HTTPS o localhost), y por IP local en HTTP no está disponible. En ese
- * caso la subida sigue funcionando, solo que sin esta comprobación.
+ * Returns null when it cannot be computed: crypto.subtle only exists in secure
+ * contexts (HTTPS or localhost), so over plain HTTP on a local IP it is unavailable.
+ * The upload still works in that case, just without this check.
  */
 async function sha256Hex(blob: Blob): Promise<string | null> {
   try {
@@ -83,7 +83,7 @@ async function sha256Hex(blob: Blob): Promise<string | null> {
   }
 }
 
-/** Envía un trozo con XMLHttpRequest para poder informar del progreso y cancelar. */
+/** Sends one chunk over XMLHttpRequest, so progress can be reported and cancelled. */
 function putPart(
   uploadId: string,
   index: number,
@@ -97,7 +97,7 @@ function putPart(
     let lastLoaded = 0;
 
     xhr.upload.addEventListener("progress", (e) => {
-      // Se informa del incremento, no del total, para poder sumar trozos en paralelo.
+      // Reports the delta, not the total, so parallel chunks can be summed.
       onBytes(e.loaded - lastLoaded);
       lastLoaded = e.loaded;
     });
@@ -108,20 +108,20 @@ function putPart(
       } else if (xhr.status === 401) {
         reject(new Error("UNAUTHORIZED"));
       } else {
-        let message = `Fallo al enviar la parte ${index + 1} (${xhr.status})`;
+        let message = `Failed to send part ${index + 1} (${xhr.status})`;
         try {
           message = JSON.parse(xhr.responseText).error || message;
         } catch {
-          /* respuesta no JSON */
+          /* non-JSON response */
         }
-        // El progreso de este intento no cuenta: se descuenta lo ya sumado.
+        // Progress from this attempt does not count: subtract what was added.
         onBytes(-lastLoaded);
         reject(new Error(message));
       }
     };
     xhr.onerror = () => {
       onBytes(-lastLoaded);
-      reject(new Error("Error de red"));
+      reject(new Error("Network error"));
     };
     xhr.onabort = () => reject(new Error("ABORTED"));
 
@@ -137,12 +137,12 @@ function putPart(
 export interface UploadOptions {
   ttlHours: number;
   maxDownloads?: number;
-  /** Etiqueta de quién sube, informativa. */
+  /** Informational uploader label. */
   uploadedBy?: string;
   onProgress?: (progress: Progress) => void;
-  /** Trozos enviados a la vez. Más de uno aprovecha mejor el ancho de banda. */
+  /** Chunks sent at once. More than one uses the link better. */
   concurrency?: number;
-  /** Reintentos por trozo antes de rendirse. */
+  /** Retries per chunk before giving up. */
   retries?: number;
 }
 
@@ -157,7 +157,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
     let totalParts = 0;
     let received: number[] = [];
 
-    // ── Retomar si hay una subida previa del mismo fichero ──────────
+    // ── Resume if there is a previous upload of the same file ───────
     if (uploadId) {
       const res = await fetch(`/api/upload/${uploadId}`);
       if (res.ok) {
@@ -166,13 +166,13 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
         totalParts = state.totalParts;
         received = state.received ?? [];
       } else {
-        // Caducada o borrada en el servidor: se empieza de nuevo.
+        // Expired or removed on the server: start over.
         forgetUpload(file);
         uploadId = null;
       }
     }
 
-    // ── O abrir una nueva ───────────────────────────────────────────
+    // ── Or open a new one ───────────────────────────────────────────
     if (!uploadId) {
       const res = await fetch("/api/upload/init", {
         method: "POST",
@@ -187,7 +187,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
         }),
       });
       if (res.status === 401) throw new Error("UNAUTHORIZED");
-      const data = await jsonOrThrow(res, "No se pudo iniciar la subida");
+      const data = await jsonOrThrow(res, "Could not start the upload");
       uploadId = data.uploadId as string;
       chunkSize = data.chunkSize as number;
       totalParts = data.totalParts as number;
@@ -198,7 +198,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
     const done = new Set<number>(received);
     const pending = Array.from({ length: totalParts }, (_, i) => i).filter((i) => !done.has(i));
 
-    // Lo ya confirmado por el servidor cuenta como progreso desde el primer momento.
+    // What the server already confirmed counts as progress from the start.
     let loaded = done.size > 0 ? Math.min(file.size, done.size * chunkSize) : 0;
     const report = (delta: number) => {
       loaded = Math.max(0, Math.min(file.size, loaded + delta));
@@ -206,7 +206,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
     };
     report(0);
 
-    // ── Enviar los trozos que falten ────────────────────────────────
+    // ── Send the missing chunks ─────────────────────────────────────
     let cursor = 0;
     async function worker() {
       while (cursor < pending.length) {
@@ -226,7 +226,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
             const message = error instanceof Error ? error.message : "";
             if (message === "ABORTED" || message === "UNAUTHORIZED") throw error;
             if (++attempt > retries) throw error;
-            // Espera creciente: si la red se ha caído, insistir de inmediato no ayuda.
+            // Backoff: if the network is down, retrying immediately does not help.
             await new Promise((r) => setTimeout(r, 1000 * attempt));
           }
         }
@@ -235,10 +235,10 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
 
     await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, pending.length)) }, worker));
 
-    // ── Cerrar ──────────────────────────────────────────────────────
+    // ── Finish ──────────────────────────────────────────────────────
     const res = await fetch(`/api/upload/${uploadId}/complete`, { method: "POST" });
     if (res.status === 401) throw new Error("UNAUTHORIZED");
-    const result = (await jsonOrThrow(res, "No se pudo completar la subida")) as unknown as UploadResult;
+    const result = (await jsonOrThrow(res, "Could not complete the upload")) as unknown as UploadResult;
 
     forgetUpload(file);
     return result;

@@ -49,9 +49,9 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
       const res = await fetch(`/api/files/${file.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       onDeleted(file.id);
-      toast.success("Fichero eliminado", { description: file.originalName });
+      toast.success("File deleted", { description: file.originalName });
     } catch {
-      toast.error("No se pudo eliminar");
+      toast.error("Could not delete it");
       setDeleting(false);
     }
   }
@@ -59,12 +59,12 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
   return (
     <li className="group relative overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:border-border hover:bg-card">
       <div className="flex items-start gap-3 p-3 sm:items-center sm:p-4">
-        {/* Seleccionar para descargar varios juntos en un ZIP. */}
+        {/* Select to download several together as one archive. */}
         <input
           type="checkbox"
           checked={selected}
           onChange={() => onToggle(file.id)}
-          aria-label={`Seleccionar ${file.originalName}`}
+          aria-label={`Select ${file.originalName}`}
           className="mt-1 size-4 shrink-0 accent-primary sm:mt-0"
         />
         <span aria-hidden className="mt-0.5 text-xl sm:mt-0 sm:text-2xl">
@@ -72,7 +72,7 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
         </span>
 
         <div className="min-w-0 flex-1">
-          {/* break-all evita que un nombre largo sin espacios desborde en móvil. */}
+          {/* Truncation keeps a long unbroken name from overflowing on mobile. */}
           <p className="truncate text-sm font-medium sm:text-[15px]" title={file.originalName}>
             {file.originalName}
           </p>
@@ -84,14 +84,14 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
             {file.uploadedBy && (
               <>
                 <span aria-hidden>·</span>
-                <span className="max-w-[10rem] truncate">de {file.uploadedBy}</span>
+                <span className="max-w-[10rem] truncate">by {file.uploadedBy}</span>
               </>
             )}
             {file.maxDownloads > 0 && (
               <>
                 <span aria-hidden>·</span>
                 <span className="tabular-nums">
-                  {file.downloadCount}/{file.maxDownloads} descargas
+                  {file.downloadCount}/{file.maxDownloads} downloads
                 </span>
               </>
             )}
@@ -113,7 +113,7 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
             variant="ghost"
             size="icon"
             className="size-9"
-            aria-label={`Descargar ${file.originalName}`}
+            aria-label={`Download ${file.originalName}`}
           >
             <Download className="size-4" aria-hidden />
           </Button>
@@ -122,7 +122,7 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
             size="icon"
             onClick={remove}
             disabled={deleting}
-            aria-label={`Eliminar ${file.originalName}`}
+            aria-label={`Delete ${file.originalName}`}
             className="size-9 text-muted-foreground hover:text-destructive"
           >
             {deleting ? (
@@ -134,7 +134,7 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
         </div>
       </div>
 
-      {/* Vida restante: en móvil sustituye a la etiqueta, que no cabe. */}
+      {/* Remaining life: on mobile it replaces the badge, which does not fit. */}
       <div className="flex items-center gap-2 px-3 pb-3 sm:hidden">
         <Progress value={elapsed} className="h-1" />
         <span

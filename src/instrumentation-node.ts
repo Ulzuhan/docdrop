@@ -1,37 +1,37 @@
 /**
- * Arranque del servidor (solo Node). Ver `instrumentation.ts` para saber por qué
- * está en un fichero aparte.
+ * Server startup (Node only). See `instrumentation.ts` for why this lives in its own
+ * file.
  *
- * Hace dos cosas: dejar constancia en el log de en qué modo ha arrancado, y poner en
- * marcha el barrido periódico del almacén.
+ * It does two things: log which mode the server started in, and kick off the
+ * periodic sweep of the store.
  */
 import { authRequired } from "@/lib/auth";
 import { MAX_TOTAL_BYTES, UPLOAD_DIR, cleanup } from "@/lib/store";
 import { cleanupSessions } from "@/lib/upload-session";
 
-/** Cada cuánto se purga lo caducado. */
+/** How often expired content is purged. */
 const SWEEP_INTERVAL = 60 * 60 * 1000;
 
 const gib = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GiB`;
 
 if (authRequired()) {
-  console.log("[docdrop] modo: PROTEGIDO — subir y listar exigen contraseña");
+  console.log("[docdrop] mode: PROTECTED — uploading and listing require the password");
 } else {
   console.warn(
-    "[docdrop] modo: ABIERTO — cualquiera que llegue al servicio puede subir " +
-      "ficheros y ver la lista completa. Adecuado en red privada o tras un túnel " +
-      "temporal; para protegerlo: npm run set-password"
+    "[docdrop] mode: OPEN — anyone who reaches this service can upload files and " +
+      "see the full listing. Fine on a private network or behind a temporary " +
+      "tunnel; to protect it: npm run set-password"
   );
 }
-console.log(`[docdrop] datos en ${UPLOAD_DIR} · cuota ${gib(MAX_TOTAL_BYTES)}`);
+console.log(`[docdrop] data in ${UPLOAD_DIR} · quota ${gib(MAX_TOTAL_BYTES)}`);
 
 /**
- * Barrido periódico.
+ * Periodic sweep.
  *
- * Sin esto, un fichero caducado solo se borraba cuando alguien intentaba abrirlo: un
- * vídeo de varios GB que caduca y nadie vuelve a tocar se quedaba ocupando la cuota
- * para siempre, hasta que las subidas nuevas empezaban a fallar con "Storage full"
- * sin que nada estuviera realmente en uso.
+ * Without this, an expired file was only deleted when someone tried to open it: a
+ * multi-GB video that expired and nobody touched again kept eating into the quota
+ * forever, until new uploads started failing with "Storage full" while nothing was
+ * actually in use.
  */
 async function sweep() {
   try {
@@ -39,16 +39,16 @@ async function sweep() {
     const deleted = await cleanup();
     if (deleted.length + abandoned.length > 0) {
       console.log(
-        `[docdrop] barrido: ${deleted.length} caducados, ` +
-          `${abandoned.length} subidas abandonadas`
+        `[docdrop] sweep: ${deleted.length} expired, ` +
+          `${abandoned.length} abandoned uploads`
       );
     }
   } catch (error) {
-    console.error("[docdrop] fallo en el barrido:", error);
+    console.error("[docdrop] sweep failed:", error);
   }
 }
 
 void sweep();
-// unref() para que el temporizador no impida al proceso terminar cuando toque.
+// unref() so the timer never keeps the process alive when it should exit.
 setInterval(sweep, SWEEP_INTERVAL).unref();
-console.log(`[docdrop] barrido automático cada ${SWEEP_INTERVAL / 60000} min`);
+console.log(`[docdrop] automatic sweep every ${SWEEP_INTERVAL / 60000} min`);

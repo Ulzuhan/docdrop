@@ -3,10 +3,10 @@ import { completeSession, readSession } from "@/lib/upload-session";
 import { requireSession } from "@/lib/auth";
 
 /**
- * POST /api/upload/[uploadId]/complete — cierra la subida.
+ * POST /api/upload/[uploadId]/complete — closes the upload.
  *
- * Solo tiene éxito si están todos los trozos; si falta alguno responde 409 con la
- * lista, para que el cliente los reenvíe en vez de dar la subida por perdida.
+ * Only succeeds when every chunk is present; if any is missing it answers 409 with
+ * the list, so the client can re-send them instead of writing the upload off.
  */
 export async function POST(
   _request: Request,

@@ -22,11 +22,11 @@ export function CopyLinkButton({ path, label, className, variant = "secondary", 
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      toast.success("Enlace copiado");
+      toast.success("Link copied");
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Sin permiso de portapapeles (contexto no seguro): al menos mostrar la URL.
-      toast.error("No se pudo copiar", { description: url });
+      // No clipboard permission (insecure context): at least show the URL.
+      toast.error("Could not copy", { description: url });
     }
   }
 
@@ -36,7 +36,7 @@ export function CopyLinkButton({ path, label, className, variant = "secondary", 
       variant={variant}
       size={size ?? (label ? "default" : "icon")}
       onClick={copy}
-      aria-label={label ? undefined : "Copiar enlace"}
+      aria-label={label ? undefined : "Copy link"}
       className={cn(className)}
     >
       {copied ? (
@@ -44,7 +44,7 @@ export function CopyLinkButton({ path, label, className, variant = "secondary", 
       ) : (
         <Copy className="size-4" aria-hidden />
       )}
-      {label ? <span>{copied ? "¡Copiado!" : label}</span> : null}
+      {label ? <span>{copied ? "Copied!" : label}</span> : null}
     </Button>
   );
 }

@@ -23,21 +23,22 @@ import { requireSession } from "@/lib/auth";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
- * POST /api/upload — el cuerpo de la petición ES el fichero (no multipart).
+ * POST /api/upload — the request body IS the file (not multipart).
  *
- * Metadatos por cabecera:
- *   x-filename       nombre original, percent-encoded (UTF-8)
- *   x-ttl-hours      horas hasta la autodestrucción (1..720)
- *   x-max-downloads  0 = ilimitado
+ * Metadata travels in headers:
+ *   x-filename       original name, percent-encoded (UTF-8)
+ *   x-ttl-hours      hours until self-destruction (1..720)
+ *   x-max-downloads  0 = unlimited
+ *   x-uploaded-by    optional uploader label, percent-encoded
  *
- * Antes esto usaba request.formData(), que materializa el fichero entero en memoria:
- * con el límite anunciado de 10 GB el proceso moría mucho antes de llegar (el tope de
- * Buffer en Node ronda los 2 GB). Ahora el cuerpo se canaliza a disco por streaming, así
- * que la memoria usada es constante e independiente del tamaño del fichero.
+ * This used to call request.formData(), which materialises the whole file in memory:
+ * with the advertised 10 GB limit the process died long before getting there (Node's
+ * Buffer cap is around 2 GB). The body is now streamed to disk, so memory usage is
+ * constant and independent of the file size.
  */
 export async function POST(request: NextRequest) {
-  // Subir exige sesión: expuesto a internet, un endpoint de subida abierto es
-  // alojamiento anónimo gratis y una forma trivial de llenar el disco.
+  // Uploading requires a session: exposed to the internet, an open upload endpoint
+  // is free anonymous hosting and a trivial way to fill the disk.
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
@@ -63,15 +64,15 @@ export async function POST(request: NextRequest) {
   const ttlHours = clampTtlHours(request.headers.get("x-ttl-hours"));
   const maxDownloads = clampMaxDownloads(request.headers.get("x-max-downloads"));
 
-  // Rechazo temprano si el cliente ya declara un tamaño excesivo, para no escribir
-  // gigabytes en disco antes de darnos cuenta.
+  // Early rejection when the client already declares an excessive size, so we do
+  // not write gigabytes to disk before noticing.
   const declared = Number(request.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_FILE_SIZE) {
     return NextResponse.json({ error: "File too large. Max 10GB." }, { status: 413 });
   }
 
-  // Cuota global: impide que el almacén crezca hasta llenar el disco de la máquina,
-  // que se llevaría por delante al resto de servicios del equipo.
+  // Global quota: stops the store from growing until it fills the machine disk and
+  // takes every other service on the box down with it.
   const used = await usedBytes();
   const budget = MAX_TOTAL_BYTES - used;
   if (budget <= 0) {
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // El corte real se hace sobre lo que llegue de verdad, no sobre lo declarado.
+  // The real cut-off applies to what actually arrives, not to what was declared.
   const hardCap = Math.min(MAX_FILE_SIZE, budget);
 
   const id = generateId();
@@ -95,8 +96,8 @@ export async function POST(request: NextRequest) {
   try {
     await createEntryDir(id);
 
-    // Corta la subida en cuanto se pasa del límite, aunque el cliente haya mentido en
-    // Content-Length o no lo haya enviado.
+    // Aborts as soon as the limit is exceeded, even if the client lied in
+    // Content-Length or sent none at all.
     let written = 0;
     const limiter = new Transform({
       transform(chunk: Buffer, _enc, cb) {
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Empty file" }, { status: 400 });
     }
 
-    // El tamaño se toma del disco, no de lo que dijera el cliente.
+    // The size comes from disk, not from whatever the client claimed.
     const size = (await stat(blobPath(id))).size;
 
     const now = Date.now();
@@ -147,7 +148,7 @@ export async function POST(request: NextRequest) {
       downloadUrl: `/d/${id}`,
     });
   } catch (error) {
-    // Sin esto, una subida interrumpida dejaba el directorio a medias para siempre.
+    // Without this, an interrupted upload left a half-written directory forever.
     await deleteEntry(id).catch(() => {});
 
     if ((error as { code?: string }).code === "TOO_LARGE") {

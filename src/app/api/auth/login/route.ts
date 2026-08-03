@@ -8,13 +8,13 @@ import {
 } from "@/lib/auth";
 import { clientIp, rateLimit, resetLimit, tooManyRequests } from "@/lib/ratelimit";
 
-// Fuerza bruta: 5 intentos por IP cada 15 minutos.
+// Brute force: 5 attempts per IP every 15 minutes.
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   if (!isConfigured()) {
-    // Sin contraseña configurada no se entra: fallar cerrado, nunca abierto.
+    // No password configured means no way in: fail closed, never open.
     return NextResponse.json(
       { error: "Server not configured. Set DOCDROP_PASSWORD_HASH and DOCDROP_SESSION_SECRET." },
       { status: 503 }

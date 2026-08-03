@@ -16,13 +16,13 @@ import { requireSession } from "@/lib/auth";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
- * PUT /api/upload/[uploadId]/part/[index] — recibe un trozo.
+ * PUT /api/upload/[uploadId]/part/[index] — receives one chunk.
  *
- * El cuerpo es el trozo en crudo y se escribe directamente en su posición dentro del
- * fichero final, así que no hace falta ensamblar nada después.
+ * The body is the raw chunk and it is written straight into its position inside the
+ * final file, so nothing needs assembling afterwards.
  *
- * Es idempotente: reenviar un trozo ya recibido responde 200 sin volver a escribirlo,
- * que es lo que permite reintentar sin miedo cuando la red falla a mitad.
+ * It is idempotent: re-sending an already received chunk answers 200 without writing
+ * it again, which is what makes retrying safe when the network fails mid-way.
  */
 export async function PUT(
   request: NextRequest,
@@ -31,7 +31,7 @@ export async function PUT(
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
-  // Cupo amplio: una subida grande son cientos de trozos legítimos.
+  // Generous quota: a large upload is hundreds of legitimate chunks.
   const limit = rateLimit(`upload-part:${clientIp(request)}`, 5000, 60 * 60 * 1000);
   if (!limit.allowed) return tooManyRequests(limit);
 
@@ -61,10 +61,10 @@ export async function PUT(
   const expected = partSize(session, index);
   const { start } = partRange(session, index);
 
-  // El cliente puede enviar el SHA-256 del trozo. Con reintentos automáticos y
-  // reanudación, un trozo que llegue corrupto pasaría desapercibido: el tamaño
-  // cuadraría y se daría por bueno. La cabecera es opcional porque crypto.subtle
-  // solo existe en contextos seguros (HTTPS o localhost).
+  // The client may send the chunk's SHA-256. With automatic retries and resuming in
+  // play, a corrupted chunk would go unnoticed: the size would add up and it would
+  // be accepted. The header is optional because crypto.subtle only exists in secure
+  // contexts (HTTPS or localhost).
   const declaredHash = request.headers.get("x-chunk-sha256")?.trim().toLowerCase() || null;
   const hasher = declaredHash ? createHash("sha256") : null;
 
@@ -83,7 +83,7 @@ export async function PUT(
 
   try {
     const source = Readable.fromWeb(request.body as unknown as NodeWebReadableStream);
-    // 'r+' abre sin truncar y `start` sitúa la escritura en el offset del trozo.
+    // 'r+' opens without truncating and `start` places the write at the chunk offset.
     await pipeline(source, counter, createWriteStream(blobPath(uploadId), { flags: "r+", start }));
   } catch (error) {
     if ((error as { code?: string }).code === "PART_TOO_LARGE") {
@@ -93,8 +93,8 @@ export async function PUT(
     return NextResponse.json({ error: "Part upload failed" }, { status: 500 });
   }
 
-  // Un trozo corto significa que la conexión se cortó a medias: no se marca como
-  // recibido, así que el cliente lo reintentará y se sobrescribirá el mismo rango.
+  // A short chunk means the connection dropped mid-way: it is not marked as
+  // received, so the client retries and overwrites the same range.
   if (written !== expected) {
     return NextResponse.json(
       { error: "Incomplete part", expected, received: written },
@@ -102,8 +102,8 @@ export async function PUT(
     );
   }
 
-  // Integridad: si no cuadra, NO se marca como recibido, así que el cliente lo
-  // reenviará y sobrescribirá el mismo rango del fichero.
+  // Integrity: on mismatch it is NOT marked as received, so the client re-sends it
+  // and overwrites the same range of the file.
   if (hasher) {
     const actual = hasher.digest("hex");
     if (actual !== declaredHash) {

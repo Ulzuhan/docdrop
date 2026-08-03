@@ -9,14 +9,14 @@ import { getUploaderName, setUploaderName } from "@/lib/uploader-name";
 const noopSubscribe = () => () => {};
 
 /**
- * Nombre con el que se etiquetan los ficheros que subes.
+ * The name your uploads are labelled with.
  *
- * Cuando varias personas comparten el mismo servicio, sin esto la lista es un montón
- * de ficheros sin dueño. Se guarda en el navegador, así que se escribe una vez.
+ * When several people share the same service, without this the listing is just a
+ * pile of ownerless files. Stored in the browser, so it is typed once.
  */
 export function UploaderNameField() {
-  // El valor vive en localStorage, que no existe al renderizar en el servidor: se
-  // lee tras hidratar, sin setState dentro de un efecto.
+  // The value lives in localStorage, which does not exist during server rendering:
+  // it is read after hydration, with no setState inside an effect.
   const stored = useSyncExternalStore(
     noopSubscribe,
     () => getUploaderName(),
@@ -29,7 +29,7 @@ export function UploaderNameField() {
     <div className="flex items-center gap-2">
       <Label htmlFor="uploader" className="flex items-center gap-1.5 text-muted-foreground">
         <UserRound className="size-3.5" aria-hidden />
-        <span className="sr-only sm:not-sr-only">Subo como</span>
+        <span className="sr-only sm:not-sr-only">Upload as</span>
       </Label>
       <Input
         id="uploader"
@@ -38,7 +38,7 @@ export function UploaderNameField() {
           setEdited(e.target.value);
           setUploaderName(e.target.value);
         }}
-        placeholder="tu nombre"
+        placeholder="your name"
         maxLength={40}
         autoComplete="nickname"
         className="h-9 w-32 text-sm sm:w-40"

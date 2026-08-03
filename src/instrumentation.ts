@@ -1,9 +1,9 @@
 /**
- * Next llama a `register` en TODOS los entornos, incluido el Edge Runtime, donde no
- * existen `fs` ni `process.cwd()`. Por eso el arranque real vive en un fichero aparte
- * que solo se importa bajo Node: si se importara desde aquí, aunque fuese dentro de
- * un `if`, el empaquetador lo seguiría metiendo en el bundle de Edge y la compilación
- * fallaría. Es el patrón que documenta Next.
+ * Next calls `register` in EVERY runtime, including the Edge Runtime, where `fs` and
+ * `process.cwd()` do not exist. That is why the real startup lives in a separate file
+ * imported only under Node: importing it from here — even inside an `if` — would still
+ * pull it into the Edge bundle and break the build. This is the pattern Next
+ * documents.
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {

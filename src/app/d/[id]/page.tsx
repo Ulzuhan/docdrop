@@ -37,9 +37,9 @@ export default function DownloadPage() {
   const [reason, setReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  // Reloj en estado: leer Date.now() en el render es impuro y dejaba la cuenta
-  // atrás congelada. El valor inicial no llega al HTML prerenderizado porque este
-  // bloque solo se pinta cuando ya hay fileInfo, que llega por fetch en el cliente.
+  // Clock in state: reading Date.now() during render is impure and left the
+  // countdown frozen. The initial value never reaches the prerendered HTML because
+  // this block only paints once fileInfo is there, fetched on the client.
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -57,13 +57,13 @@ export default function DownloadPage() {
         if (cancelled) return;
 
         if (!res.ok) {
-          setError(data.error || "Fichero no encontrado");
+          setError(data.error || "File not found");
           setReason(data.reason ?? null);
           return;
         }
         setFileInfo(data);
       } catch {
-        if (!cancelled) setError("No se pudo cargar la información del fichero");
+        if (!cancelled) setError("Could not load the file information");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -77,8 +77,8 @@ export default function DownloadPage() {
 
   function download() {
     setDownloading(true);
-    // Navegación directa: deja que el navegador gestione la descarga (y permite
-    // reanudarla, porque el servidor admite peticiones Range).
+    // Direct navigation: let the browser handle the download (and resume it, since
+    // the server supports Range requests).
     window.location.href = `/api/download/${id}`;
     setTimeout(() => setDownloading(false), 2500);
   }
@@ -116,19 +116,19 @@ export default function DownloadPage() {
 
             <h1 className="mt-4 text-xl font-semibold tracking-tight">
               {reason === "exhausted"
-                ? "Este fichero ya se consumió"
+                ? "This file has been used up"
                 : reason === "expired"
-                  ? "Este enlace ha caducado"
-                  : "Fichero no disponible"}
+                  ? "This link has expired"
+                  : "File not available"}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground text-balance">
               {reason
-                ? "Los ficheros se borran solos al caducar o al agotar sus descargas. Pide a quien te lo envió que vuelva a subirlo."
+                ? "Files delete themselves once they expire or run out of downloads. Ask whoever sent it to upload it again."
                 : error}
             </p>
 
             <Button render={<Link href="/" />} variant="outline" className="mt-6 h-11 w-full">
-              Ir a DocDrop
+Go to DocDrop
             </Button>
           </div>
         ) : fileInfo ? (
@@ -148,9 +148,9 @@ export default function DownloadPage() {
               </p>
             </div>
 
-            {/* Previsualización: ver antes de bajarse varios GB. Se sirve con
-                ?inline=1, que no consume descargas y solo admite tipos que no
-                pueden ejecutar guiones en este origen. */}
+            {/* Preview: look before downloading several GB. Served with ?inline=1,
+                which consumes no downloads and only allows types that cannot run
+                scripts in this origin. */}
             {!expired && fileInfo.mimeType.startsWith("video/") && (
               <video
                 controls
@@ -159,20 +159,20 @@ export default function DownloadPage() {
                 className="mt-6 w-full rounded-2xl border border-border bg-black"
                 src={`/api/download/${id}?inline=1`}
               >
-                Tu navegador no puede reproducir este vídeo.
+Your browser cannot play this video.
               </video>
             )}
 
             {!expired && fileInfo.mimeType.startsWith("audio/") && (
               <audio controls className="mt-6 w-full" src={`/api/download/${id}?inline=1`}>
-                Tu navegador no puede reproducir este audio.
+Your browser cannot play this audio.
               </audio>
             )}
 
             {!expired &&
               fileInfo.mimeType.startsWith("image/") &&
               fileInfo.mimeType !== "image/svg+xml" && (
-                // eslint-disable-next-line @next/next/no-img-element -- fichero servido por la propia app, sin optimizar
+                // eslint-disable-next-line @next/next/no-img-element -- served by the app itself, unoptimised
                 <img
                   src={`/api/download/${id}?inline=1`}
                   alt={fileInfo.originalName}
@@ -183,31 +183,31 @@ export default function DownloadPage() {
             <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4 sm:p-5">
               <dl className="space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">Tipo</dt>
+                  <dt className="text-muted-foreground">Type</dt>
                   <dd className="truncate font-mono text-xs">{fileInfo.mimeType}</dd>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">Subido</dt>
+                  <dt className="text-muted-foreground">Uploaded</dt>
                   <dd className="text-right">{formatDateTime(fileInfo.uploadedAt)}</dd>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between gap-4">
                   <dt className="flex items-center gap-1.5 text-muted-foreground">
                     <Clock className="size-3.5" aria-hidden />
-                    Caduca
+Expires
                   </dt>
                   <dd className={expired ? "font-medium text-destructive" : "font-medium text-success"}>
-                    {expired ? "caducado" : `en ${formatRemaining(fileInfo.expiresAt, now)}`}
+                    {expired ? "expired" : `in ${formatRemaining(fileInfo.expiresAt, now)}`}
                   </dd>
                 </div>
                 {fileInfo.maxDownloads > 0 && (
                   <>
                     <Separator />
                     <div className="flex items-center justify-between gap-4">
-                      <dt className="text-muted-foreground">Descargas</dt>
+                      <dt className="text-muted-foreground">Downloads</dt>
                       <dd className="tabular-nums">
-                        {fileInfo.downloadCount} de {fileInfo.maxDownloads}
+                        {fileInfo.downloadCount} of {fileInfo.maxDownloads}
                       </dd>
                     </div>
                   </>
@@ -217,7 +217,7 @@ export default function DownloadPage() {
 
             {expired ? (
               <p className="mt-6 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-center text-sm text-destructive">
-                Este fichero ha caducado y ya no está disponible.
+This file has expired and is no longer available.
               </p>
             ) : (
               <div className="mt-6 flex items-center gap-2">
@@ -227,9 +227,9 @@ export default function DownloadPage() {
                   ) : (
                     <Download className="size-5" aria-hidden />
                   )}
-                  {downloading ? "Empezando…" : "Descargar"}
+                  {downloading ? "Starting…" : "Download"}
                 </Button>
-                {/* Reenviar el enlace a otra persona sin volver al panel. */}
+                {/* Forward the link to someone else without going back to the dashboard. */}
                 <ShareButton
                   path={`/d/${id}`}
                   title={fileInfo.originalName}
@@ -241,14 +241,14 @@ export default function DownloadPage() {
 
             {fileInfo.maxDownloads > 0 && !expired && (
               <p className="mt-3 text-center text-xs text-muted-foreground">
-                Quedan {fileInfo.maxDownloads - fileInfo.downloadCount} descargas antes de que
-                se borre.
+                {fileInfo.maxDownloads - fileInfo.downloadCount} downloads left before it is
+                deleted.
               </p>
             )}
 
             <p className="mt-8 text-center text-xs text-muted-foreground">
               <Link href="/" className="underline-offset-4 hover:text-foreground hover:underline">
-                Comparte tus propios ficheros con DocDrop
+Share your own files with DocDrop
               </Link>
             </p>
           </div>

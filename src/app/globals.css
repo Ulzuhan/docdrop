@@ -5,9 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Paleta DocDrop. Se conserva el violeta de la identidad original como color
- * primario y se construye alrededor una escala neutra fría, en OKLCH para que las
- * variaciones de luminosidad sean perceptualmente uniformes.
+ * DocDrop palette. A violet primary with a cool neutral scale built around it, in
+ * OKLCH so lightness steps are perceptually uniform.
  */
 :root {
   --radius: 0.75rem;
@@ -62,8 +61,8 @@
   --background: oklch(0.16 0.014 274);
   --foreground: oklch(0.94 0.006 265);
 
-  /* Las superficies suben en luminosidad con la elevación, no con sombras: en
-     oscuro las sombras apenas se perciben. */
+  /* Surfaces gain lightness with elevation rather than shadows: in dark mode
+     shadows are barely perceptible. */
   --card: oklch(0.21 0.018 274);
   --card-foreground: oklch(0.94 0.006 265);
   --popover: oklch(0.23 0.018 274);
@@ -158,8 +157,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    /* Resplandor tenue detrás del contenido: aporta profundidad sin imágenes ni
-       degradados llamativos. */
+    /* Faint glow behind the content: adds depth without images or loud gradients. */
     background-image: radial-gradient(
       60rem 60rem at 50% -22rem,
       color-mix(in oklch, var(--primary) 16%, transparent),
@@ -169,7 +167,7 @@
     background-attachment: fixed;
   }
 
-  /* Respeta a quien pide menos animación por accesibilidad. */
+  /* Respects anyone who asks for reduced motion. */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -183,13 +181,13 @@
 }
 
 @layer utilities {
-  /* Espacio seguro en móviles con notch o barra de gestos. */
+  /* Safe area for phones with a notch or a gesture bar. */
   .pb-safe {
     padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
   }
 }
 
-/* Barra de desplazamiento discreta, coherente con el tema. */
+/* Discreet scrollbar, consistent with the theme. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

@@ -1,143 +1,68 @@
-# Despliegue aislado (opcional)
+# Isolated deployment (optional)
 
-Esta carpeta contiene lo necesario para correr DocDrop como servicio de sistema con
-un usuario propio y un sandbox estricto. **No hace falta para usarlo**: con
-`npm run start` (o un servicio de usuario, ver el README principal) es suficiente.
-Merece la pena si va a estar expuesto a menudo o desatendido.
+Everything needed to run DocDrop as a system service with its own user and a strict
+sandbox. **Not required to use it**: `npm run start` (or a user service, see the main
+README) is enough. Worth it if the service will be exposed often or left unattended.
 
-El servicio escucha solo en `127.0.0.1`. Para usarlo desde fuera se levanta un
-túnel temporal y se cierra al terminar:
-
-```bash
-cloudflared tunnel --url http://127.0.0.1:3010   # Ctrl-C para cerrarlo
-```
-
-## Modelo de acceso
-
-Por defecto el servicio arranca **ABIERTO**: quien llegue a él puede subir ficheros
-y ver la lista completa. Es lo razonable en red privada o tras un túnel que se abre
-y se cierra a mano — pero significa que mientras el túnel esté levantado, cualquiera
-con esa URL tiene acceso de escritura.
-
-Añadiendo una contraseña al fichero de entorno el reparto pasa a ser:
-
-| Ruta | Con contraseña configurada |
-|---|---|
-| `/`, `/api/upload`, `/api/files`, `/api/files/[id]`, `/api/cleanup` | Requiere contraseña |
-| `/d/[id]`, `/api/info/[id]`, `/api/download/[id]` | Público (el secreto es el id de 72 bits) |
-
-```bash
-npm run set-password              # imprime las dos líneas
-sudo nano /etc/docdrop.env        # descomenta y pégalas
-sudo systemctl restart docdrop
-```
-
-El modo en el que ha arrancado queda registrado en el log:
-`journalctl -u docdrop | grep modo`.
-
-## Instalación
+## Install
 
 ```bash
 npm run build
-sudo ./deploy/install.sh          # crea el usuario, despliega y arranca
+sudo ./deploy/install.sh     # creates the user, deploys and starts it
 ```
 
-`install.sh` es idempotente: relanzarlo despliega una versión nueva conservando
-las credenciales de `/etc/docdrop.env`.
+`install.sh` is idempotent: re-running it deploys a new version while keeping
+whatever is in `/etc/docdrop.env`.
 
-## Qué contiene el compromiso
+## What the sandbox contains
 
-Si alguien encontrara una ejecución remota de código en la aplicación, se
-encontraría con:
+If someone found a remote code execution hole in the application, they would run into:
 
-- **Usuario `docdrop`**, que **no está en el grupo `docker`**. Es la contención
-  más importante: el usuario `ulzuhan` sí lo está, y desde el grupo docker
-  `docker run -v /:/host` da root sobre la máquina.
-- **`ProtectHome=yes`** — sin acceso a `/home`: ni claves SSH, ni tokens, ni el
-  resto de proyectos.
-- **`ProtectSystem=strict`** — todo el disco en solo lectura salvo
-  `/var/lib/docdrop`. No puede reescribir ni su propio código, que es de root.
-- **`CapabilityBoundingSet=`** vacío y `NoNewPrivileges` — sin capacidades ni
-  escalada por binarios setuid.
-- **`SystemCallFilter`** — sin `@privileged`, `@mount`, `@swap`, `@reboot`.
-- **`MemoryMax=1G` y `TasksMax=256`** — un abuso no se lleva por delante la RAM
-  de los demás servicios del equipo.
-- **Escucha solo en `127.0.0.1`** — la única entrada es el proxy de Tailscale.
+- **A dedicated `docdrop` user that is NOT in the `docker` group.** This is the key
+  containment: on a typical single-user machine the login account often is, and from
+  there `docker run -v /:/host` hands over the whole box.
+- **`ProtectHome=yes`** — no access to `/home`: no SSH keys, no tokens, no other
+  projects.
+- **`ProtectSystem=strict`** — the whole disk read-only except `/var/lib/docdrop`.
+  It cannot even rewrite its own code, which is owned by root.
+- **Empty `CapabilityBoundingSet`** and `NoNewPrivileges` — no capabilities and no
+  escalation through setuid binaries.
+- **`SystemCallFilter`** — no `@privileged`, `@mount`, `@swap` or `@reboot`.
+- **`MemoryMax=1G` and `TasksMax=256`** — abuse cannot exhaust the machine's RAM.
+- **Listens on `127.0.0.1` only** — the sole way in is a proxy or a tunnel.
 
-Comprueba la nota de aislamiento con:
+Check the resulting exposure score with:
 
 ```bash
 systemd-analyze security docdrop.service
 ```
 
-## Límites de la aplicación
+## Configuration
 
-Configurables por variable de entorno en `/etc/docdrop.env`:
+Environment variables live in `/etc/docdrop.env` (mode 640, readable by the service
+only). See the main README for the full list.
 
-| Variable | Por defecto | Para qué |
-|---|---|---|
-| `DOCDROP_MAX_FILE_BYTES` | 10 GB | Tamaño máximo por fichero |
-| `DOCDROP_MAX_TOTAL_BYTES` | 20 GB | Ocupación total; evita llenar el disco |
-| `DOCDROP_DATA_DIR` | `/var/lib/docdrop` | Dónde viven los ficheros |
-| `DOCDROP_REQUEST_TIMEOUT_MS` | 12 h | Duración máxima de una petición (ver abajo) |
-
-Rate limiting por IP (en memoria): 5 intentos de login cada 15 min, 30 subidas por
-hora, 240 descargas por minuto. La IP sale del último valor de `X-Forwarded-For`,
-que tanto Tailscale como Cloudflare sobrescriben con la real (comprobado con el
-proxy de Tailscale). No se usa `X-Real-Ip`: Tailscale la deja pasar sin filtrar y
-el cliente puede inventarla para esquivar el límite.
-
-Cambiar `DOCDROP_SESSION_SECRET` invalida todas las sesiones abiertas.
-
-## Subidas largas
-
-Node aborta con un 408 cualquier petición que dure más de `requestTimeout`, y su
-valor por defecto son **5 minutos**. Como una subida es una única petición HTTP,
-un fichero grande se corta a media transferencia: a ~19 MB/s el límite llega sobre
-los 5,6 GB, así que un vídeo de 7 GB moría pasado el 80 %.
-
-Next no permite configurar ese valor (solo `keepAliveTimeout`) y `output:
-standalone` es incompatible con un servidor propio, así que `scripts/start.js`
-ajusta el servidor HTTP antes de arrancar Next y lo sube a 12 h. Se mantiene
-`headersTimeout` en 60 s, que es el que protege de clientes que mandan las
-cabeceras gota a gota; el cuerpo no puede crecer sin límite porque `/api/upload`
-corta al superar el tamaño máximo.
-
-Por eso el servicio arranca con `node start.js` y no con `node server.js`.
-
-### Subida por trozos
-
-Para ficheros grandes el navegador no envía una sola petición: parte el fichero en
-trozos de 32 MiB y manda cada uno por separado (`/api/upload/init`,
-`/api/upload/[id]/part/[n]`, `/api/upload/[id]/complete`). Cada trozo se escribe
-directamente en su posición del fichero final, así que no hay fase de ensamblado.
-
-Esto resuelve dos cosas a la vez:
-
-- **El tope por petición de los proxies.** Medido contra un quick tunnel de
-  Cloudflare: 500 MiB pasa, 512 MiB devuelve 413 al instante. Con trozos de 32 MiB
-  da igual lo que ocupe el fichero. Comprobado subiendo 600 MB por el túnel, que
-  en una sola petición daba 413.
-- **Los cortes de red.** El cliente guarda el identificador de la subida y consulta
-  `GET /api/upload/[id]` para saber qué trozos faltan, así que retoma donde iba.
-  Volver a elegir el mismo fichero continúa la subida en lugar de reiniciarla. Las
-  sesiones a medias se pueden retomar durante 24 h y luego las borra el cleanup.
-
-Las descargas no tienen ese tope: 600 MB bajaron por el mismo túnel a 30 MB/s.
-
-## Purga periódica
-
-Los ficheros caducados se borran al intentar accederlos, pero conviene un barrido.
-Con la cookie de sesión, o desde el propio host:
+By default the service starts **open**, with no password. To protect it:
 
 ```bash
-curl -X POST -b "docdrop_session=<cookie>" http://127.0.0.1:3010/api/cleanup
+npm run set-password          # prints the two lines
+sudo nano /etc/docdrop.env    # uncomment and paste them
+sudo systemctl restart docdrop
 ```
 
-## Operación
+Changing `DOCDROP_SESSION_SECRET` invalidates every open session.
+
+## Operations
 
 ```bash
 systemctl status docdrop
 journalctl -u docdrop -f
-ss -tlnp | grep 3010                  # confirmar que solo escucha en loopback
+journalctl -u docdrop | grep mode      # which mode it started in
+ss -tlnp | grep 3010                   # confirm it only listens on loopback
 ```
+
+## Note on `next start`
+
+The unit starts the service with `node start.js`, not `node server.js`. `start.js`
+raises the HTTP server's `requestTimeout` before handing over to Next; Node's default
+(5 minutes) cuts large uploads off mid-transfer. See the main README for the details.

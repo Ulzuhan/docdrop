@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /**
- * Arranque de producción con los tiempos de espera ajustados para subidas largas.
+ * Production entry point, with timeouts adjusted for long uploads.
  *
- * EL PROBLEMA: Node aborta toda petición que dure más de `server.requestTimeout`,
- * 300 000 ms (5 min) por defecto. Una subida grande es UNA sola petición HTTP, así
- * que a ~19 MB/s el corte llega sobre los 5,6 GB — un fichero de 7 GB muere pasado
- * el 80 % sin ningún error claro en el cliente. Next solo permite configurar
- * `keepAliveTimeout`, no `requestTimeout`, y `output: standalone` es incompatible
- * con un servidor propio (lo dice la documentación), así que se ajusta el valor
- * interceptando la creación del servidor HTTP antes de arrancar Next.
+ * THE PROBLEM: Node aborts any request lasting longer than `server.requestTimeout`,
+ * 300,000 ms (5 min) by default. A large upload is ONE single HTTP request, so at
+ * ~19 MB/s the cut-off lands around 5.6 GB — a 7 GB file dies just past 80% with no
+ * clear error on the client. Next only exposes `keepAliveTimeout`, not
+ * `requestTimeout`, and `output: standalone` is incompatible with a custom server
+ * (its own docs say so), so the value is adjusted by intercepting the creation of
+ * the HTTP server before Next starts.
  *
- * Se conserva `headersTimeout` en 60 s: es el que protege de clientes que envían
- * las cabeceras gota a gota. El cuerpo lento no puede crecer sin límite porque
- * /api/upload corta en cuanto se supera el tamaño máximo.
+ * `headersTimeout` stays at 60s: that is the one protecting against clients dribbling
+ * headers out. A slow body cannot grow unbounded because /api/upload cuts it off as
+ * soon as the maximum size is exceeded.
  */
 const http = require("node:http");
 const https = require("node:https");
@@ -39,15 +39,15 @@ function patchFactory(module, name) {
 patchFactory(http, "createServer");
 patchFactory(https, "createServer");
 
-// El servidor de standalone hace chdir a su propio directorio, así que la ruta de
-// datos por defecto (relativa al cwd) dejaría de apuntar al proyecto. Se fija aquí,
-// antes de cederle el control. En producción systemd ya define DOCDROP_DATA_DIR.
+// The standalone server chdirs into its own directory, so the default data path
+// (relative to cwd) would stop pointing at the project. It is pinned here, before
+// handing over control. In production the service manager sets DOCDROP_DATA_DIR.
 if (!process.env.DOCDROP_DATA_DIR) {
   process.env.DOCDROP_DATA_DIR = path.join(process.cwd(), ".docdrop-uploads");
 }
 
-// El server.js de standalone está junto a este fichero cuando se despliega, y en
-// .next/standalone cuando se ejecuta desde el repositorio.
+// standalone's server.js sits next to this file once deployed, and in
+// .next/standalone when running from the repository.
 const candidates = [
   path.join(__dirname, "server.js"),
   path.join(__dirname, "..", "server.js"),
@@ -57,24 +57,24 @@ const candidates = [
 const target = candidates.find((candidate) => fs.existsSync(candidate));
 if (!target) {
   console.error(
-    "[docdrop] No encuentro el servidor de Next. Ejecuta 'npm run build' antes de arrancar."
+    "[docdrop] Cannot find the Next server. Run 'npm run build' before starting."
   );
   process.exit(1);
 }
 
 const minutes = Math.round(REQUEST_TIMEOUT / 60000);
-console.log(`[docdrop] límite por petición: ${minutes} min (subidas largas permitidas)`);
+console.log(`[docdrop] per-request limit: ${minutes} min (long uploads allowed)`);
 
 require(target);
 
-// Si una versión futura de Next dejara de usar http.createServer, el ajuste no se
-// aplicaría y volverían los cortes a los 5 minutos. Mejor enterarse por el log que
-// por una subida de 7 GB que se rompe al 80 %.
+// If a future Next version stopped using http.createServer, the adjustment would
+// silently not apply and the 5-minute cut-off would come back. Better to find out
+// from the log than from a 7 GB upload breaking at 80%.
 setTimeout(() => {
   if (patched === 0) {
     console.error(
-      "[docdrop] AVISO: no se pudo ajustar requestTimeout; las subidas de más de " +
-        "5 minutos se cortarán. Revisa scripts/start.js."
+      "[docdrop] WARNING: could not adjust requestTimeout; uploads longer than " +
+        "5 minutes will be cut off. Check scripts/start.js."
     );
   }
 }, 5000).unref();

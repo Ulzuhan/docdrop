@@ -14,8 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
   {
-    // Los scripts de scripts/ son de Node y CommonJS a propósito: start.js tiene que
-    // parchear http.createServer antes de cargar el servidor de Next, que es CJS.
+    // The files in scripts/ are Node scripts and CommonJS on purpose: start.js has
+    // to patch http.createServer before loading Next's server, which is CJS.
     files: ["scripts/**/*.js"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",

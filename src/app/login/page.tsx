@@ -30,10 +30,10 @@ export default function LoginPage() {
         return;
       }
       const data = await res.json().catch(() => ({}));
-      setError(data.error || "Contraseña incorrecta");
+      setError(data.error || "Wrong password");
       setPassword("");
     } catch {
-      setError("Error de red");
+      setError("Network error");
     } finally {
       setBusy(false);
     }
@@ -52,14 +52,14 @@ export default function LoginPage() {
             >
               <Lock className="size-6" />
             </span>
-            <h1 className="mt-4 text-xl font-semibold tracking-tight">Acceso restringido</h1>
+            <h1 className="mt-4 text-xl font-semibold tracking-tight">Restricted access</h1>
             <p className="mt-1.5 text-sm text-muted-foreground text-balance">
-              Introduce la contraseña para subir y gestionar ficheros.
+Enter the password to upload and manage files.
             </p>
           </div>
 
           <div className="mt-6 space-y-2">
-            <Label htmlFor="password">Contraseña</Label>
+            <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               type="password"
@@ -86,11 +86,11 @@ export default function LoginPage() {
 
           <Button type="submit" disabled={busy || !password} className="mt-5 h-11 w-full">
             {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {busy ? "Comprobando…" : "Entrar"}
+            {busy ? "Checking…" : "Sign in"}
           </Button>
 
           <p className="mt-5 text-center text-xs text-muted-foreground text-balance">
-            Quien tenga un enlace de descarga puede seguir bajando ese fichero sin entrar.
+Anyone holding a download link can still fetch that file without signing in.
           </p>
         </form>
       </main>

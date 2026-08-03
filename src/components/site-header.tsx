@@ -29,7 +29,7 @@ export function SiteHeader({ storage, actions }: Props) {
           </span>
         </Link>
 
-        {/* El indicador de almacenamiento solo cabe con holgura a partir de sm. */}
+        {/* The storage indicator only fits comfortably from sm upwards. */}
         {storage && (
           <div className="ml-auto hidden items-center gap-2 sm:flex">
             <HardDrive className="size-3.5 text-muted-foreground" aria-hidden />
@@ -48,7 +48,7 @@ export function SiteHeader({ storage, actions }: Props) {
         </div>
       </div>
 
-      {/* En móvil el uso de disco pasa a una línea fina bajo la cabecera. */}
+      {/* On mobile, disk usage moves to a thin line under the header. */}
       {storage && (
         <div className="flex items-center gap-2 px-4 pb-2 sm:hidden">
           <Progress value={pct} className="h-1" />

@@ -3,10 +3,10 @@ import { deleteEntry, isValidId, readMeta } from "@/lib/store";
 import { requireSession } from "@/lib/auth";
 
 /**
- * DELETE /api/files/[id] — borra un fichero antes de que caduque.
+ * DELETE /api/files/[id] — deletes a file before it expires.
  *
- * Faltaba: la lista del panel solo dejaba mirar, así que la única forma de liberar
- * espacio era esperar a la caducidad. Con la cuota de almacenamiento eso importa.
+ * The dashboard listing used to be read-only, so the only way to free space was to
+ * wait for expiry. With a storage quota in place that matters.
  */
 export async function DELETE(_request: Request, ctx: RouteContext<"/api/files/[id]">) {
   const unauthorized = await requireSession();

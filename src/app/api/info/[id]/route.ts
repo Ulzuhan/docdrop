@@ -7,7 +7,7 @@ const GONE = {
   exhausted: "Max downloads reached",
 } as const;
 
-/** GET /api/info/[id] — metadatos del fichero, sin consumir una descarga. Público. */
+/** GET /api/info/[id] — file metadata, without consuming a download. Public. */
 export async function GET(request: Request, ctx: RouteContext<"/api/info/[id]">) {
   const limit = rateLimit(`info:${clientIp(request)}`, 120, 60_000);
   if (!limit.allowed) return tooManyRequests(limit);

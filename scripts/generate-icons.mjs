@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * Genera los iconos de la PWA.
+ * Generates the PWA icons.
  *
- * En esta máquina no hay ImageMagick ni Pillow, así que se rasteriza a mano y se
- * escribe el PNG con zlib, que viene en Node. Es un script de una sola pasada: los
- * PNG resultantes se versionan y no hace falta volver a ejecutarlo salvo que cambie
- * el diseño.
+ * No ImageMagick or Pillow required: the icon is rasterised by hand and the PNG is
+ * written with zlib, which ships with Node. One-shot script — the resulting PNGs are
+ * committed, so it only needs re-running when the design changes.
  *
  *   node scripts/generate-icons.mjs
  */
@@ -16,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// ─── PNG mínimo (RGBA, sin filtro) ───────────────────────────────────
+// ─── Minimal PNG (RGBA, no filtering) ────────────────────────────────
 const CRC_TABLE = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -46,9 +45,9 @@ function encodePng(width, height, rgba) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // 8 bits por canal
+  ihdr[8] = 8; // 8 bits per channel
   ihdr[9] = 6; // RGBA
-  // Cada fila va precedida por su byte de filtro (0 = sin filtro).
+  // Each row is preceded by its filter byte (0 = none).
   const raw = Buffer.alloc(height * (width * 4 + 1));
   for (let y = 0; y < height; y++) {
     raw[y * (width * 4 + 1)] = 0;
@@ -62,7 +61,7 @@ function encodePng(width, height, rgba) {
   ]);
 }
 
-// ─── Dibujo ──────────────────────────────────────────────────────────
+// ─── Drawing ─────────────────────────────────────────────────────────
 const VIOLET_TOP = [124, 92, 255];
 const VIOLET_BOTTOM = [83, 55, 214];
 
@@ -74,7 +73,7 @@ function mix(a, b, t) {
   ];
 }
 
-/** Distancia con signo a un rectángulo redondeado, para bordes suaves. */
+/** Signed distance to a rounded rectangle, for smooth edges. */
 function roundedRectSdf(px, py, cx, cy, halfW, halfH, radius) {
   const dx = Math.abs(px - cx) - (halfW - radius);
   const dy = Math.abs(py - cy) - (halfH - radius);
@@ -83,17 +82,17 @@ function roundedRectSdf(px, py, cx, cy, halfW, halfH, radius) {
 }
 
 /**
- * Silueta de flecha hacia arriba sobre una base: "subir un fichero".
- * Coordenadas normalizadas al lienzo para que escale a cualquier tamaño.
+ * Up-arrow silhouette over a base: "upload a file".
+ * Coordinates are normalised to the canvas so it scales to any size.
  */
 function arrowAlpha(x, y, size, scale) {
   const c = size / 2;
-  const u = size * scale; // unidad de diseño
+  const u = size * scale; // design unit
 
-  // Asta vertical
+  // Vertical shaft
   const shaft = roundedRectSdf(x, y, c, c - u * 0.06, u * 0.11, u * 0.34, u * 0.1);
 
-  // Punta triangular
+  // Triangular head
   const tipY = c - u * 0.52;
   const halfSpan = u * 0.34;
   const height = u * 0.3;
@@ -104,7 +103,7 @@ function arrowAlpha(x, y, size, scale) {
     tri = Math.abs(x - c) - spanAtY;
   }
 
-  // Base horizontal (la "bandeja")
+  // Horizontal base (the "tray")
   const base = roundedRectSdf(x, y, c, c + u * 0.46, u * 0.42, u * 0.1, u * 0.09);
 
   return Math.min(shaft, tri, base);
@@ -112,10 +111,10 @@ function arrowAlpha(x, y, size, scale) {
 
 function renderIcon(size, { maskable = false } = {}) {
   const rgba = Buffer.alloc(size * size * 4);
-  // El icono maskable deja margen: los lanzadores recortan hasta un 20 % del borde.
+  // The maskable icon leaves margin: launchers crop up to 20% of the edge.
   const symbolScale = maskable ? 0.42 : 0.56;
   const radius = maskable ? size / 2 : size * 0.22;
-  const SS = 3; // supermuestreo para suavizar los bordes
+  const SS = 3; // supersampling to smooth the edges
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -141,7 +140,7 @@ function renderIcon(size, { maskable = false } = {}) {
 
       const [r, g, b] = mix(VIOLET_TOP, VIOLET_BOTTOM, y / size);
       const i = (y * size + x) * 4;
-      // El símbolo es blanco sobre el degradado.
+      // The symbol is white over the gradient.
       rgba[i] = Math.round(r + (255 - r) * symAlpha);
       rgba[i + 1] = Math.round(g + (255 - g) * symAlpha);
       rgba[i + 2] = Math.round(b + (255 - b) * symAlpha);
@@ -152,16 +151,16 @@ function renderIcon(size, { maskable = false } = {}) {
   return encodePng(size, size, rgba);
 }
 
-// ─── Salida ──────────────────────────────────────────────────────────
+// ─── Output ──────────────────────────────────────────────────────────
 mkdirSync(join(root, "public", "icons"), { recursive: true });
 
 const outputs = [
   ["public/icons/icon-192.png", renderIcon(192)],
   ["public/icons/icon-512.png", renderIcon(512)],
   ["public/icons/icon-maskable-512.png", renderIcon(512, { maskable: true })],
-  // Next sirve src/app/apple-icon.png en la etiqueta apple-touch-icon.
+  // Next serves src/app/apple-icon.png as the apple-touch-icon tag.
   ["src/app/apple-icon.png", renderIcon(180)],
-  // Next sirve src/app/icon.png como favicon automáticamente.
+  // Next serves src/app/icon.png as the favicon automatically.
   ["src/app/icon.png", renderIcon(64)],
 ];
 
@@ -171,4 +170,4 @@ for (const [relative, buffer] of outputs) {
   writeFileSync(target, buffer);
   console.log(`  ${relative}  (${(buffer.length / 1024).toFixed(1)} KB)`);
 }
-console.log("Iconos generados.");
+console.log("Icons generated.");

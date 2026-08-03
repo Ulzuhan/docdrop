@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Destino declarado en el manifiesto para el menú "Compartir" del sistema.
+ * Target declared in the manifest for the system's "Share" menu.
  *
- * En condiciones normales esta ruta no llega a ejecutarse: el service worker
- * intercepta el POST, guarda el fichero y redirige a la página. Esto es solo la red
- * de seguridad para cuando el worker todavía no está activo, para que compartir no
- * termine en un 405 sin explicación.
+ * Normally this route never runs: the service worker intercepts the POST, stores the
+ * file and redirects to the page. This is only the safety net for when the worker is
+ * not active yet, so sharing does not end in an unexplained 405.
  */
 export async function POST(request: NextRequest) {
   return NextResponse.redirect(new URL("/?shared=error", request.url), 303);

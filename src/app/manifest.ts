@@ -1,17 +1,17 @@
 import type { MetadataRoute } from "next";
 
 /**
- * Manifiesto de la PWA: permite instalar DocDrop en la pantalla de inicio del móvil.
+ * PWA manifest: lets DocDrop be installed on a phone's home screen.
  *
- * `share_target` es lo que de verdad cambia el uso diario: hace que DocDrop aparezca
- * en el menú "Compartir" del móvil, así que se puede enviar un vídeo desde la galería
- * sin pasar por el navegador ni buscar el fichero a mano.
+ * `share_target` is what really changes day-to-day use: it makes DocDrop show up in
+ * the phone's "Share" menu, so a video can be sent straight from the gallery without
+ * opening the browser or hunting for the file.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "DocDrop — Comparte ficheros",
+    name: "DocDrop — Share files",
     short_name: "DocDrop",
-    description: "Sube un fichero, comparte el enlace. Se autodestruye.",
+    description: "Upload a file, share the link. It self-destructs.",
     start_url: "/",
     scope: "/",
     display: "standalone",

@@ -1,24 +1,24 @@
 /**
- * Subida por trozos.
+ * Chunked uploads.
  *
- * POR QUÉ: una subida de varios GB en una sola petición HTTP choca con todos los
- * límites del camino — el proxy de Cloudflare rechaza cuerpos de más de 500 MiB
- * (medido), y cualquier corte de red obliga a empezar de cero, que en un móvil es
- * lo normal: se bloquea la pantalla, se cambia de wifi a datos, se cae la conexión.
+ * WHY: a multi-GB upload in a single HTTP request runs into every limit along the
+ * way — Cloudflare's proxy rejects bodies over 500 MiB (measured), and any network
+ * hiccup forces starting over, which on a phone is the norm: the screen locks, wifi
+ * switches to mobile data, the connection drops.
  *
- * CÓMO: el cliente parte el fichero y envía cada trozo en su propia petición. Cada
- * trozo se escribe directamente en su posición dentro del fichero final (escritura
- * posicional), así que no hay fase de ensamblado ni se duplica el espacio en disco.
- * Qué trozos han llegado se registra con ficheros marca vacíos, que son atómicos y
- * no necesitan bloqueos entre peticiones concurrentes.
+ * HOW: the client splits the file and sends each chunk in its own request. Each
+ * chunk is written straight into its position inside the final file (positional
+ * write), so there is no assembly phase and no duplicated disk space. Which chunks
+ * arrived is tracked with empty marker files, which are atomic and need no locking
+ * between concurrent requests.
  *
- * Estructura mientras la subida está en curso:
- *   <id>/file          fichero final, reservado con su tamaño definitivo
- *   <id>/session.json  metadatos de la subida
- *   <id>/parts/<n>     marca de "el trozo n ya está escrito"
+ * Layout while an upload is in flight:
+ *   <id>/file          final file, pre-allocated at its definitive size
+ *   <id>/session.json  upload metadata
+ *   <id>/parts/<n>     marker for "chunk n is already written"
  *
- * Al completarse aparece <id>/meta.json y desaparecen session.json y parts/, con lo
- * que la entrada pasa a ser un fichero normal para el resto de la aplicación.
+ * On completion <id>/meta.json appears and session.json and parts/ go away, so the
+ * entry becomes a regular file for the rest of the application.
  */
 import { existsSync } from "fs";
 import { mkdir, readdir, readFile, rm, stat, truncate, writeFile } from "fs/promises";
@@ -36,11 +36,11 @@ import {
   type FileMeta,
 } from "@/lib/store";
 
-/** Tamaño de trozo. Holgadamente por debajo del tope de 500 MiB de Cloudflare, y lo
- *  bastante pequeño para que reintentar uno cueste poco en una red mala. */
+/** Chunk size. Comfortably below Cloudflare's 500 MiB cap, and small enough that
+ *  retrying one is cheap on a bad network. */
 export const CHUNK_SIZE = Number(process.env.DOCDROP_CHUNK_BYTES) || 32 * 1024 * 1024;
 
-/** Una subida a medias se puede retomar durante este tiempo. */
+/** How long a half-finished upload can be resumed. */
 export const SESSION_TTL = 24 * 60 * 60 * 1000;
 
 export interface UploadSession {
@@ -79,7 +79,7 @@ export async function readSession(id: string): Promise<UploadSession | null> {
   }
 }
 
-/** True si la entrada es una subida en curso (y no un fichero ya terminado). */
+/** True if the entry is an upload in flight (rather than a finished file). */
 export async function hasActiveSession(id: string): Promise<boolean> {
   const session = await readSession(id);
   return session !== null && session.sessionExpiresAt > Date.now();
@@ -113,9 +113,9 @@ export async function createSession(input: CreateSessionInput): Promise<UploadSe
   };
 
   await mkdir(partsDir(id), { recursive: true });
-  // Se reserva el fichero con su tamaño final para poder escribir cada trozo en su
-  // posición. En un sistema de ficheros con soporte de huecos esto no ocupa disco
-  // hasta que se rellena.
+  // The file is pre-allocated at its final size so each chunk can be written at its
+  // own offset. On a filesystem with sparse-file support this takes no disk space
+  // until it is filled in.
   await writeFile(blobPath(id), "");
   await truncate(blobPath(id), session.size);
   await writeFile(sessionPath(id), JSON.stringify(session, null, 2));
@@ -123,7 +123,7 @@ export async function createSession(input: CreateSessionInput): Promise<UploadSe
   return session;
 }
 
-/** Índices de los trozos ya recibidos. */
+/** Indexes of the chunks received so far. */
 export async function receivedParts(id: string): Promise<number[]> {
   try {
     const names = await readdir(partsDir(id));
@@ -144,7 +144,7 @@ export async function isPartReceived(id: string, index: number): Promise<boolean
   return existsSync(join(partsDir(id), String(index)));
 }
 
-/** Rango de bytes que ocupa un trozo dentro del fichero final. */
+/** Byte range a chunk occupies inside the final file. */
 export function partRange(session: UploadSession, index: number): { start: number; end: number } {
   const start = index * session.chunkSize;
   const end = Math.min(start + session.chunkSize, session.size);
@@ -161,8 +161,8 @@ export type CompleteResult =
   | { ok: false; missing: number[] };
 
 /**
- * Cierra la subida: comprueba que están todos los trozos, escribe meta.json y retira
- * los restos de la sesión. A partir de ese momento la entrada es un fichero normal.
+ * Closes the upload: checks every chunk is there, writes meta.json and clears the
+ * session leftovers. From then on the entry is a regular file.
  */
 export async function completeSession(session: UploadSession): Promise<CompleteResult> {
   const received = new Set(await receivedParts(session.id));
@@ -186,8 +186,8 @@ export async function completeSession(session: UploadSession): Promise<CompleteR
   };
 
   await writeMeta(meta);
-  // El meta.json ya está escrito: si algo falla al limpiar, la entrada sigue siendo
-  // válida y el barrido de sesiones se encargará de los restos.
+  // meta.json is already written: if cleanup fails now, the entry is still valid and
+  // the session sweep will take care of the leftovers.
   await rm(partsDir(session.id), { recursive: true, force: true });
   await rm(sessionPath(session.id), { force: true });
 
@@ -199,7 +199,7 @@ export async function abortSession(id: string): Promise<void> {
   await rm(entryDir(id), { recursive: true, force: true });
 }
 
-/** Elimina las subidas a medias que ya nadie va a retomar. */
+/** Removes half-finished uploads nobody is going to resume. */
 export async function cleanupSessions(): Promise<string[]> {
   if (!existsSync(UPLOAD_DIR)) return [];
   const now = Date.now();

@@ -16,17 +16,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DocDrop — Comparte ficheros al instante",
-  description: "Sube un fichero, comparte el enlace. Se autodestruye.",
-  // El servicio puede quedar accesible desde internet al abrir un túnel temporal:
-  // que al menos no acabe indexado.
+  title: "DocDrop — Share files instantly",
+  description: "Upload a file, share the link. It self-destructs.",
+  // The service may become reachable from the internet through a temporary tunnel:
+  // at least keep it out of search indexes.
   robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // No se bloquea el zoom: impedirlo es una barrera de accesibilidad.
+  // Zoom is not blocked: preventing it is an accessibility barrier.
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#fbfbfe" },
@@ -41,7 +41,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="es"
+      lang="en"
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable}`}
     >

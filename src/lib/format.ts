@@ -1,4 +1,4 @@
-/** Formateadores compartidos por el panel y el visor (antes duplicados en ambos). */
+/** Formatting helpers shared by the dashboard and the viewer (they used to be duplicated in both). */
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -8,10 +8,10 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/** Tiempo restante en formato corto: "2d 4h", "35m". */
+/** Time left, short form: "2d 4h", "35m". */
 export function formatRemaining(expiresAt: number, now: number): string {
   const diff = expiresAt - now;
-  if (diff <= 0) return "caducado";
+  if (diff <= 0) return "expired";
 
   const minutes = Math.floor(diff / 60_000);
   const hours = Math.floor(minutes / 60);
@@ -22,31 +22,31 @@ export function formatRemaining(expiresAt: number, now: number): string {
   return `${minutes}m`;
 }
 
-/** Tiempo transcurrido: "hace 5m". */
+/** Time elapsed: "5m ago". */
 export function formatAgo(timestamp: number, now: number): string {
   const minutes = Math.floor((now - timestamp) / 60_000);
-  if (minutes < 1) return "ahora mismo";
-  if (minutes < 60) return `hace ${minutes}m`;
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `hace ${hours}h`;
-  return `hace ${Math.floor(hours / 24)}d`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 export function formatDateTime(timestamp: number): string {
-  return new Intl.DateTimeFormat("es-ES", {
+  return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(timestamp));
 }
 
-/** Fracción de vida ya consumida (0..1), para la barra de caducidad. */
+/** Fraction of life already used (0..1), for the expiry bar. */
 export function lifeElapsed(uploadedAt: number, expiresAt: number, now: number): number {
   const total = expiresAt - uploadedAt;
   if (total <= 0) return 1;
   return Math.min(1, Math.max(0, (now - uploadedAt) / total));
 }
 
-/** Emoji orientativo según el tipo de fichero. */
+/** Rough emoji for the file type. */
 export function fileEmoji(mimeType: string, name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   if (mimeType.startsWith("image/")) return "🖼️";

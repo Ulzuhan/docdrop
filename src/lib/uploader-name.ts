@@ -1,9 +1,9 @@
 /**
- * Nombre de quien sube, recordado en el navegador.
+ * Uploader name, remembered in the browser.
  *
- * Sirve para saber de quién es cada fichero en la lista cuando varias personas usan
- * el mismo servicio. No es una identidad ni pretende serlo: es una etiqueta que cada
- * uno se pone, igual que el nombre en una carpeta compartida.
+ * Lets you tell whose file is whose in the listing when several people share the
+ * same service. It is not an identity and does not try to be: it is a label each
+ * person sets for themselves, like a name on a shared folder.
  */
 const KEY = "docdrop:uploader";
 
@@ -21,6 +21,6 @@ export function setUploaderName(name: string): void {
     if (clean) localStorage.setItem(KEY, clean);
     else localStorage.removeItem(KEY);
   } catch {
-    // Modo privado: se pierde entre sesiones, nada más.
+    // Private mode: it is lost between sessions, nothing more.
   }
 }

@@ -1,25 +1,24 @@
 /**
- * Service worker de DocDrop.
+ * DocDrop service worker.
  *
- * Hace dos cosas y nada más:
+ * It does two things and nothing else:
  *
- *  1. Existe. Un service worker con manejador de fetch es requisito para que el
- *     navegador ofrezca instalar la aplicación.
- *  2. Recoge los ficheros que llegan por el menú "Compartir" del sistema. El
- *     manifiesto declara /share como destino, el sistema envía ahí un POST con el
- *     fichero, y este worker lo guarda un momento y redirige a la página, que lo
- *     recoge y lo sube.
+ *  1. It exists. A service worker with a fetch handler is a requirement for the
+ *     browser to offer installing the app.
+ *  2. It picks up files arriving from the system "Share" menu. The manifest declares
+ *     /share as the target, the system POSTs the file there, and this worker stores
+ *     it briefly and redirects to the page, which picks it up and uploads it.
  *
- * A propósito NO cachea la aplicación: es un servicio propio, en red local o tras un
- * túnel, donde servir una versión vieja desde caché causa más problemas de los que
- * resuelve.
+ * It deliberately does NOT cache the app: this is a self-hosted service on a local
+ * network or behind a tunnel, where serving a stale version from cache causes more
+ * problems than it solves.
  */
 
 const SHARE_CACHE = "docdrop-share";
 const SHARE_KEY = "/__shared-file__";
 
 self.addEventListener("install", () => {
-  // Activa la versión nueva sin esperar a que se cierren las pestañas antiguas.
+  // Activate the new version without waiting for old tabs to close.
   self.skipWaiting();
 });
 
@@ -30,13 +29,13 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Fichero entrante desde el menú "Compartir" del sistema.
+  // Incoming file from the system "Share" menu.
   if (event.request.method === "POST" && url.pathname === "/share") {
     event.respondWith(handleShare(event.request));
     return;
   }
 
-  // La página pide el fichero compartido que quedó guardado.
+  // The page asks for the shared file that was stored.
   if (event.request.method === "GET" && url.pathname === SHARE_KEY) {
     event.respondWith(
       caches
@@ -47,7 +46,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Todo lo demás va a la red sin intermediarios.
+  // Everything else goes straight to the network.
 });
 
 async function handleShare(request) {
@@ -62,15 +61,15 @@ async function handleShare(request) {
         new Response(file, {
           headers: {
             "Content-Type": file.type || "application/octet-stream",
-            // El nombre viaja aparte: el cuerpo de una Response no lo conserva.
-            "X-Shared-Filename": encodeURIComponent(file.name || "compartido"),
+            // The name travels separately: a Response body does not carry it.
+            "X-Shared-Filename": encodeURIComponent(file.name || "shared"),
           },
         })
       );
       return Response.redirect("/?shared=1", 303);
     }
   } catch (error) {
-    console.error("[docdrop sw] fallo al recibir el fichero compartido", error);
+    console.error("[docdrop sw] failed to receive the shared file", error);
   }
 
   return Response.redirect("/?shared=error", 303);

@@ -35,23 +35,23 @@ export interface UploadQueueHandle {
 }
 
 /**
- * Cola de subidas.
+ * Upload queue.
  *
- * Los ficheros se suben de dos en dos: lanzarlos todos a la vez reparte el ancho de
- * banda entre muchas conexiones y hace que ninguno termine, que con vídeos de varios
- * GB es lo peor posible. De dos en dos se aprovecha el enlace y se ve avanzar algo.
+ * Files go up two at a time: firing them all at once splits the bandwidth across
+ * many connections and nothing finishes, which with multi-GB videos is the worst
+ * possible outcome. Two at a time keeps the link busy and something visibly moving.
  */
 export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
   const [items, setItems] = useState<QueueItem[]>([]);
-  // La cola vive en una ref y el estado es solo su reflejo para pintar: la lógica
-  // necesita leer la lista actual fuera del ciclo de render, y así no se muta nunca
-  // un objeto ya entregado a React.
+  // The queue lives in a ref and state is just its mirror for painting: the logic
+  // needs to read the current list outside the render cycle, and this way an object
+  // already handed to React is never mutated.
   const queue = useRef<QueueItem[]>([]);
   const handles = useRef(new Map<string, UploadHandle>());
   const running = useRef(0);
   const wakeLock = useRef<WakeLockSentinel | null>(null);
-  // Las opciones se leen al empezar cada subida, no al encolarla: así cambiarlas
-  // afecta a lo que queda por subir sin recrear la cola.
+  // Options are read when each upload starts, not when it is queued: changing them
+  // affects whatever is still pending without rebuilding the queue.
   const optionsRef = useRef({ ttlHours, maxDownloads });
 
   useEffect(() => {
@@ -71,9 +71,9 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
   );
 
   /**
-   * Mantiene la pantalla encendida mientras se sube. En el móvil, bloquear la
-   * pantalla suspende la subida: la reanudación evita perder el progreso, pero
-   * obliga a volver y reelegir el fichero. Esto lo evita de entrada.
+   * Keeps the screen awake while uploading. On a phone, locking the screen suspends
+   * the upload: resuming saves the progress, but forces the user to come back and
+   * pick the file again. This avoids that in the first place.
    */
   const acquireWakeLock = useCallback(async () => {
     if (wakeLock.current || !("wakeLock" in navigator)) return;
@@ -83,7 +83,7 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
         wakeLock.current = null;
       });
     } catch {
-      // El navegador puede denegarlo (pestaña en segundo plano, batería baja).
+      // The browser may refuse (background tab, low battery).
     }
   }, []);
 
@@ -92,7 +92,7 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
     wakeLock.current = null;
   }, []);
 
-  // El sistema retira el bloqueo al ocultar la pestaña; se recupera al volver.
+  // The system drops the lock when the tab is hidden; it is re-acquired on return.
   useEffect(() => {
     function onVisible() {
       if (document.visibilityState === "visible" && running.current > 0) {
@@ -103,8 +103,8 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [acquireWakeLock]);
 
-  // pump se reprograma a sí misma al terminar cada subida; la referencia indirecta
-  // evita usar la constante antes de declararla.
+  // pump reschedules itself as each upload finishes; the indirection avoids using
+  // the constant before it is declared.
   const pumpRef = useRef<() => void>(() => {});
 
   const pump = useCallback(() => {
@@ -130,11 +130,11 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
       handle.promise
         .then((result) => {
           update(key, { state: "done", result, loaded: file.size });
-          toast.success("Subido", { description: file.name });
+          toast.success("Uploaded", { description: file.name });
           onCompleted();
         })
         .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : "La subida falló";
+          const message = err instanceof Error ? err.message : "Upload failed";
           if (message === "UNAUTHORIZED") {
             window.location.href = "/login";
             return;
@@ -150,7 +150,7 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
           handles.current.delete(key);
           running.current -= 1;
           if (running.current === 0) releaseWakeLock();
-          // Arranca el siguiente de la cola.
+          // Start the next one in the queue.
           setTimeout(() => pumpRef.current(), 0);
         });
     }
@@ -167,7 +167,7 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
       commit([
         ...queue.current,
         ...files.map((file, i) => ({
-          // Clave estable aunque se repita nombre y tamaño en el mismo lote.
+          // Stable key even if name and size repeat within the same batch.
           key: `${file.name}:${file.size}:${file.lastModified}:${base + i}`,
           file,
           state: "pending" as ItemState,
@@ -191,7 +191,7 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
   return { items, enqueue, cancel, clearFinished };
 }
 
-// ─── Presentación ────────────────────────────────────────────────────
+// ─── Presentation ────────────────────────────────────────────────────
 export function UploadQueue({
   items,
   onCancel,
@@ -212,14 +212,14 @@ export function UploadQueue({
   const globalPct = totalBytes > 0 ? Math.round((loadedBytes / totalBytes) * 100) : 0;
 
   return (
-    <section aria-label="Cola de subida" className="mt-6 space-y-3">
+    <section aria-label="Upload queue" className="mt-6 space-y-3">
       {items.length > 1 && (
         <div className="rounded-xl border border-border bg-card/60 p-3">
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-medium">
               {active.length > 0
-                ? `Subiendo ${items.length - active.length + 1} de ${items.length}`
-                : `${items.length} ficheros`}
+                ? `Uploading ${items.length - active.length + 1} of ${items.length}`
+                : `${items.length} files`}
             </span>
             <span className="tabular-nums text-muted-foreground">
               {formatBytes(loadedBytes)} / {formatBytes(totalBytes)}
@@ -253,16 +253,16 @@ export function UploadQueue({
                     {item.file.name}
                   </p>
                   <p className="text-xs tabular-nums text-muted-foreground">
-                    {item.state === "pending" && "en espera"}
+                    {item.state === "pending" && "queued"}
                     {item.state === "uploading" &&
                       `${formatBytes(item.loaded)} / ${formatBytes(item.file.size)} · ${pct}%`}
                     {item.state === "done" && formatBytes(item.file.size)}
                     {item.state === "error" && (
                       <span className="text-destructive">{item.error}</span>
                     )}
-                    {item.state === "cancelled" && "cancelada"}
+                    {item.state === "cancelled" && "cancelled"}
                     {item.resumed && item.state === "uploading" && (
-                      <span className="text-success"> · continuando</span>
+                      <span className="text-success"> · resuming</span>
                     )}
                   </p>
                 </div>
@@ -286,7 +286,7 @@ export function UploadQueue({
                       variant="ghost"
                       size="icon"
                       className="size-9"
-                      aria-label={`Cancelar ${item.file.name}`}
+                      aria-label={`Cancel ${item.file.name}`}
                       onClick={() => onCancel(item.key)}
                     >
                       {item.state === "uploading" ? (
@@ -315,7 +315,7 @@ export function UploadQueue({
           onClick={onClearFinished}
           className="w-full text-center text-xs text-muted-foreground hover:text-foreground"
         >
-          Limpiar terminados
+Clear finished
         </button>
       )}
     </section>

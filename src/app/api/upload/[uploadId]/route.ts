@@ -3,10 +3,10 @@ import { abortSession, readSession, receivedParts } from "@/lib/upload-session";
 import { requireSession } from "@/lib/auth";
 
 /**
- * GET /api/upload/[uploadId] — estado de una subida en curso.
+ * GET /api/upload/[uploadId] — status of an upload in flight.
  *
- * Es lo que permite retomarla: el cliente pregunta qué trozos han llegado y envía
- * solo los que faltan, en vez de empezar de cero tras un corte de red.
+ * This is what makes resuming possible: the client asks which chunks arrived and
+ * sends only the missing ones, instead of starting over after a network drop.
  */
 export async function GET(_request: Request, ctx: RouteContext<"/api/upload/[uploadId]">) {
   const unauthorized = await requireSession();
@@ -33,7 +33,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/upload/[upl
   });
 }
 
-/** DELETE /api/upload/[uploadId] — cancela y borra lo subido hasta ahora. */
+/** DELETE /api/upload/[uploadId] — cancels and deletes what was uploaded so far. */
 export async function DELETE(_request: Request, ctx: RouteContext<"/api/upload/[uploadId]">) {
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;

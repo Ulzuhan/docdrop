@@ -4,19 +4,19 @@ import { blobPath, claimDownload, contentDisposition, isValidId } from "@/lib/st
 import { createZipStream, uniqueNames, type ZipEntry } from "@/lib/zip";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
-/** Tope de ficheros por ZIP, para que una URL no dispare una descarga desmedida. */
+/** Cap on files per archive, so one URL cannot trigger an outsized download. */
 const MAX_ENTRIES = 100;
 
 /**
- * GET /api/zip?ids=a,b,c[&name=viaje] — descarga varios ficheros en un solo ZIP.
+ * GET /api/zip?ids=a,b,c[&name=trip] — downloads several files as a single archive.
  *
- * Público, igual que la descarga suelta: quien tenga los enlaces puede juntarlos.
- * Va por streaming y sin comprimir, así que empieza a bajar de inmediato y no
- * necesita espacio temporal en el servidor.
+ * Public, like individual downloads: whoever holds the links can group them. It is
+ * streamed and uncompressed, so it starts downloading immediately and needs no
+ * temporary space on the server.
  *
- * Cada fichero incluido cuenta como una descarga suya. Los que ya no estén
- * disponibles se omiten en silencio en lugar de tumbar el ZIP entero: es preferible
- * recibir 9 de 10 vídeos que un error.
+ * Every included file counts as a download of its own. Files that are no longer
+ * available are skipped silently rather than failing the whole archive: getting 9
+ * out of 10 videos beats getting an error.
  */
 export async function GET(request: NextRequest) {
   const limit = rateLimit(`zip:${clientIp(request)}`, 30, 60_000);
@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  // Se reservan las descargas por adelantado: así el contador refleja lo que
-  // realmente se va a enviar y se respetan los límites por fichero.
+  // Downloads are claimed up front, so the counter reflects what is actually going
+  // to be sent and per-file limits are respected.
   const entries: ZipEntry[] = [];
   for (const id of ids) {
     const claim = await claimDownload(id);
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Dos ficheros pueden llamarse igual; dentro del ZIP no pueden.
+  // Two files may share a name; inside the archive they cannot.
   const names = uniqueNames(entries.map((e) => e.name));
   entries.forEach((entry, i) => {
     entry.name = names[i];
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
-      // Sin Content-Length: el tamaño final no se conoce hasta terminar de generarlo.
+      // No Content-Length: the final size is unknown until generation finishes.
       "Content-Disposition": contentDisposition(`${base}-${stamp}.zip`),
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "no-store",

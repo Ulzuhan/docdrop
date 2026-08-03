@@ -1,10 +1,10 @@
 /**
- * DocDrop — capa única de acceso al almacén en disco.
+ * DocDrop — single access layer to the on-disk store.
  *
- * El disco es la ÚNICA fuente de verdad: no hay caché en memoria. Antes había dos
- * (una a nivel de módulo en /api/upload y otra en globalThis en /api/download) que se
- * desincronizaban entre sí y con el disco, así que el contador de descargas que veía
- * la lista no era el real.
+ * Disk is the ONLY source of truth: there is no in-memory cache. There used to be
+ * two (one module-scoped in /api/upload, another on globalThis in /api/download) and
+ * they drifted apart from each other and from disk, so the download counter shown in
+ * the listing was not the real one.
  *
  * Layout: .docdrop-uploads/<id>/{file,meta.json}
  */
@@ -14,8 +14,8 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promis
 import { join } from "path";
 
 /**
- * Directorio de datos. Configurable porque en producción el servicio corre con un
- * usuario dedicado y guarda en /var/lib/docdrop, fuera del directorio del código.
+ * Data directory. Configurable because in production the service runs under a
+ * dedicated user and stores files in /var/lib/docdrop, outside the code directory.
  */
 export const UPLOAD_DIR =
   process.env.DOCDROP_DATA_DIR?.trim() || join(process.cwd(), ".docdrop-uploads");
@@ -26,10 +26,10 @@ function envBytes(name: string, fallback: number): number {
 }
 
 export const MAX_FILE_SIZE = envBytes("DOCDROP_MAX_FILE_BYTES", 10 * 1024 * 1024 * 1024); // 10 GB
-/** Tope de ocupación total: sin esto, subir hasta llenar el disco tumba la máquina. */
+/** Total storage cap: without it, uploading until the disk fills takes the machine down. */
 export const MAX_TOTAL_BYTES = envBytes("DOCDROP_MAX_TOTAL_BYTES", 20 * 1024 * 1024 * 1024); // 20 GB
 export const MIN_TTL_HOURS = 1;
-export const MAX_TTL_HOURS = 24 * 30; // 30 días
+export const MAX_TTL_HOURS = 24 * 30; // 30 days
 export const MAX_DOWNLOAD_LIMIT = 10_000;
 
 export interface FileMeta {
@@ -40,24 +40,24 @@ export interface FileMeta {
   uploadedAt: number;
   expiresAt: number;
   downloadCount: number;
-  maxDownloads: number; // 0 = ilimitado
-  /** Quién lo subió. Es una etiqueta informativa, no una identidad verificada. */
+  maxDownloads: number; // 0 = unlimited
+  /** Who uploaded it. An informational label, not a verified identity. */
   uploadedBy?: string;
   /**
-   * Marca de "lápida": el contenido ya se borró, pero se conserva el meta.json un
-   * tiempo para poder responder "esto caducó / agotó sus descargas" en vez de un
-   * "no existe" indistinguible de un enlace mal copiado.
+   * Tombstone marker: the content is already deleted, but the meta.json is kept for
+   * a while so we can answer "this expired / ran out of downloads" instead of a
+   * "not found" that is indistinguishable from a mistyped link.
    */
   burnedAt?: number;
   burnedReason?: "expired" | "exhausted";
 }
 
-/** Cuánto se conservan las lápidas antes de desaparecer del todo. */
+/** How long tombstones are kept before disappearing for good. */
 export const TOMBSTONE_TTL = 7 * 24 * 60 * 60 * 1000;
 
-// ─── IDs y rutas ────────────────────────────────────────────────────
-// Todo id llega desde la URL, así que se valida antes de tocarlo con join():
-// sin esto, un id como "../../etc" escaparía de UPLOAD_DIR.
+// ─── IDs and paths ──────────────────────────────────────────────────
+// Every id arrives from the URL, so it is validated before being passed to join():
+// without this, an id like "../../etc" would escape UPLOAD_DIR.
 const ID_RE = /^[0-9a-f]{12,64}$/;
 
 export function isValidId(id: string): boolean {
@@ -81,7 +81,7 @@ function metaPath(id: string): string {
   return join(entryDir(id), "meta.json");
 }
 
-// ─── Lectura / escritura ────────────────────────────────────────────
+// ─── Read / write ───────────────────────────────────────────────────
 export async function readMeta(id: string): Promise<FileMeta | null> {
   if (!isValidId(id)) return null;
   try {
@@ -91,7 +91,7 @@ export async function readMeta(id: string): Promise<FileMeta | null> {
   }
 }
 
-/** Escritura atómica: tmp + rename, para no dejar un meta.json a medias si el proceso muere. */
+/** Atomic write: tmp + rename, so a dying process never leaves a half-written meta.json. */
 export async function writeMeta(meta: FileMeta): Promise<void> {
   const target = metaPath(meta.id);
   const tmp = `${target}.tmp`;
@@ -110,7 +110,7 @@ export async function deleteEntry(id: string): Promise<void> {
   invalidateUsedBytes();
 }
 
-// ─── Estado ─────────────────────────────────────────────────────────
+// ─── State ──────────────────────────────────────────────────────────
 export function isExpired(meta: FileMeta, now = Date.now()): boolean {
   return meta.expiresAt < now;
 }
@@ -127,7 +127,7 @@ export function isAvailable(meta: FileMeta, now = Date.now()): boolean {
   return !isBurned(meta) && !isExpired(meta, now) && !isExhausted(meta);
 }
 
-/** Por qué un fichero ya no se puede descargar (null si sigue disponible). */
+/** Why a file can no longer be downloaded (null if it is still available). */
 export function unavailableReason(
   meta: FileMeta,
   now = Date.now()
@@ -139,8 +139,8 @@ export function unavailableReason(
 }
 
 /**
- * Borra el contenido pero deja el meta.json como lápida. Libera el espacio (que es lo
- * que importa) conservando el motivo para quien abra el enlace después.
+ * Deletes the content but keeps the meta.json as a tombstone. Frees the space (which
+ * is what matters) while preserving the reason for whoever opens the link later.
  */
 export async function burn(id: string, reason: "expired" | "exhausted"): Promise<void> {
   const meta = await readMeta(id);
@@ -153,11 +153,11 @@ export async function burn(id: string, reason: "expired" | "exhausted"): Promise
 }
 
 /**
- * Bytes ocupados ahora mismo por los ficheros vivos (no cuenta las lápidas).
+ * Bytes currently taken up by live files (tombstones don't count).
  *
- * El resultado se cachea unos segundos: el panel pide la lista cada 10 s por cada
- * pestaña abierta, y recorrer el directorio entero en cada petición es I/O tirado a
- * la basura. Cualquier cambio en el almacén invalida la caché explícitamente.
+ * The result is cached for a few seconds: the dashboard polls the listing every 10s
+ * per open tab, and walking the whole directory on every request is wasted I/O. Any
+ * change to the store invalidates the cache explicitly.
  */
 let usedBytesCache: { value: number; at: number } | null = null;
 const USED_BYTES_TTL = 5000;
@@ -186,7 +186,7 @@ export async function usedBytes(): Promise<number> {
     try {
       total += (await stat(blobPath(id))).size;
     } catch {
-      // Sin blob (lápida o subida a medias): no ocupa.
+      // No blob (tombstone or half-finished upload): takes no space.
     }
   }
 
@@ -211,10 +211,10 @@ export async function listMeta(): Promise<FileMeta[]> {
 }
 
 /**
- * ¿La entrada corresponde a una subida por trozos todavía retomable?
+ * Is this entry a chunked upload that can still be resumed?
  *
- * Se lee session.json a mano en vez de usar el módulo de sesiones para no crear una
- * dependencia circular entre ambos.
+ * session.json is read by hand instead of going through the upload-session module,
+ * to avoid a circular dependency between the two.
  */
 async function hasLiveSession(id: string, now: number): Promise<boolean> {
   try {
@@ -226,7 +226,7 @@ async function hasLiveSession(id: string, now: number): Promise<boolean> {
   }
 }
 
-/** Borra lo caducado y lo agotado. Devuelve los ids eliminados. */
+/** Deletes what expired and what ran out of downloads. Returns the removed ids. */
 export async function cleanup(): Promise<string[]> {
   if (!existsSync(UPLOAD_DIR)) return [];
   const now = Date.now();
@@ -239,14 +239,14 @@ export async function cleanup(): Promise<string[]> {
   }
 
   for (const id of ids) {
-    if (!isValidId(id)) continue; // ignora restos ajenos al formato
+    if (!isValidId(id)) continue; // ignore leftovers that don't match the format
     const meta = await readMeta(id);
     if (!meta) {
-      // Sin meta.json puede ser una subida por trozos todavía en marcha: mientras su
-      // sesión siga viva no se toca, o se borraría una subida de varios GB a medias.
+      // No meta.json may mean a chunked upload still in flight: while its session is
+      // alive it is left alone, or a multi-GB upload would be deleted mid-way.
       if (await hasLiveSession(id, now)) continue;
 
-      // Directorio huérfano (subida interrumpida): se borra si ya no está caliente.
+      // Orphaned directory (interrupted upload): removed once it has gone cold.
       try {
         const s = await stat(entryDir(id));
         if (now - s.mtimeMs > 60 * 60 * 1000) {
@@ -258,7 +258,7 @@ export async function cleanup(): Promise<string[]> {
     }
 
     if (isBurned(meta)) {
-      // Lápida: se elimina del todo cuando ya nadie va a preguntar por ella.
+      // Tombstone: dropped entirely once nobody is going to ask about it.
       if (now - meta.burnedAt! > TOMBSTONE_TTL) {
         await deleteEntry(id);
         deleted.push(id);
@@ -275,11 +275,11 @@ export async function cleanup(): Promise<string[]> {
   return deleted;
 }
 
-// ─── Reserva de descarga ────────────────────────────────────────────
-// Serializa el leer-incrementar-escribir por id. Sin esto, dos descargas
-// simultáneas leen el mismo downloadCount y el límite se supera.
-// Vale para un solo proceso Node (el caso de este homelab); con varias
-// instancias haría falta un lock en disco o una base de datos.
+// ─── Download claim ─────────────────────────────────────────────────
+// Serialises the read-increment-write per id. Without this, two simultaneous
+// downloads read the same downloadCount and the limit gets exceeded.
+// Good enough for a single Node process (the intended deployment); with several
+// instances this would need a lock on disk or a database.
 const chains = new Map<string, Promise<unknown>>();
 
 function serialize<T>(id: string, task: () => Promise<T>): Promise<T> {
@@ -299,9 +299,9 @@ export type ClaimResult =
   | { ok: false; reason: "not_found" | "expired" | "exhausted" };
 
 /**
- * Reserva una descarga: valida disponibilidad e incrementa el contador de forma
- * serializada. `count: false` solo comprueba (para peticiones Range de continuación,
- * que son parte de una descarga ya contabilizada).
+ * Claims a download: checks availability and increments the counter in a serialised
+ * way. `count: false` only checks (for continuation Range requests, which are part
+ * of a download that was already counted).
  */
 export function claimDownload(id: string, count = true): Promise<ClaimResult> {
   return serialize(id, async () => {
@@ -319,14 +319,14 @@ export function claimDownload(id: string, count = true): Promise<ClaimResult> {
     meta.downloadCount++;
     await writeMeta(meta);
 
-    // Si esta era la última descarga permitida el contenido ya no sirve para nada, pero
-    // no se puede borrar aquí: todavía hay que enviarlo. Lo hace retireIfExhausted()
-    // cuando el stream termina.
+    // If this was the last allowed download the content is useless from now on, but
+    // it can't be deleted here: it still has to be sent. retireIfExhausted() does it
+    // once the stream finishes.
     return { ok: true, meta } as const;
   });
 }
 
-/** Quema la entrada si ya agotó sus descargas. Se llama cuando el envío ha terminado. */
+/** Burns the entry if it ran out of downloads. Called once the transfer is done. */
 export async function retireIfExhausted(id: string): Promise<void> {
   await serialize(id, async () => {
     const meta = await readMeta(id);
@@ -334,7 +334,7 @@ export async function retireIfExhausted(id: string): Promise<void> {
   });
 }
 
-// ─── Validación de parámetros de subida ─────────────────────────────
+// ─── Upload parameter validation ────────────────────────────────────
 export function clampTtlHours(raw: unknown): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 24;
@@ -343,11 +343,11 @@ export function clampTtlHours(raw: unknown): number {
 
 export function clampMaxDownloads(raw: unknown): number {
   const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return 0; // 0 = ilimitado
+  if (!Number.isFinite(n) || n <= 0) return 0; // 0 = unlimited
   return Math.min(Math.floor(n), MAX_DOWNLOAD_LIMIT);
 }
 
-/** Nombre de fichero seguro: sin rutas, sin caracteres de control, longitud acotada. */
+/** Safe file name: no paths, no control characters, bounded length. */
 export function sanitizeFilename(raw: string): string {
   const base = raw.split(/[/\\]/).pop() ?? "";
   const clean = base.replace(/[\u0000-\u001f\u007f]/g, "").trim();
@@ -356,11 +356,11 @@ export function sanitizeFilename(raw: string): string {
 }
 
 /**
- * Nombre de quien sube, para poder distinguir de quién es cada fichero en la lista.
+ * Uploader name, so it's possible to tell whose file is whose in the listing.
  *
- * No es una identidad: el servicio puede estar abierto y cualquiera puede escribir lo
- * que quiera. Solo se limpia para que no reviente la interfaz ni se cuele nada raro
- * en los metadatos.
+ * This is not an identity: the service may be running open and anyone can type
+ * whatever they like. It is only cleaned up so it can't break the UI or sneak
+ * anything odd into the metadata.
  */
 export function sanitizeUploader(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
@@ -368,7 +368,7 @@ export function sanitizeUploader(raw: unknown): string | undefined {
   return clean.length > 0 ? clean : undefined;
 }
 
-/** Content-Disposition con soporte de nombres no ASCII (RFC 5987/6266). */
+/** Content-Disposition with support for non-ASCII names (RFC 5987/6266). */
 export function contentDisposition(filename: string, inline = false): string {
   const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
   const kind = inline ? "inline" : "attachment";
@@ -376,12 +376,12 @@ export function contentDisposition(filename: string, inline = false): string {
 }
 
 /**
- * ¿Se puede servir este tipo dentro del navegador sin riesgo?
+ * Can this type be served inside the browser without risk?
  *
- * Servir contenido subido por terceros con `inline` en el mismo origen es lo que
- * convierte un servicio de ficheros en un XSS almacenado: basta con subir un .html
- * o un .svg con un <script>. Solo se permite reproducir medios, y SVG queda fuera
- * a propósito, porque es un documento con capacidad de ejecutar guiones.
+ * Serving third-party uploads `inline` from the same origin is what turns a file
+ * service into stored XSS: uploading an .html or an .svg with a <script> is enough.
+ * Only media is allowed, and SVG is deliberately excluded because it is a document
+ * that can run scripts.
  */
 export function isInlineSafe(mimeType: string): boolean {
   const type = mimeType.split(";")[0].trim().toLowerCase();

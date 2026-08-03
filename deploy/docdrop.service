@@ -1,5 +1,5 @@
 [Unit]
-Description=DocDrop — compartición de ficheros con enlaces temporales
+Description=DocDrop — file sharing with temporary links
 Documentation=file:///opt/docdrop/deploy/README.md
 After=network-online.target
 Wants=network-online.target
@@ -7,35 +7,36 @@ Wants=network-online.target
 [Service]
 Type=simple
 
-# ── Identidad ────────────────────────────────────────────────────────
-# Usuario propio SIN pertenencia al grupo docker. Esto es lo que impide que un
-# compromiso de la aplicación escale a root: el usuario ulzuhan está en el grupo
-# docker, y desde ahí `docker run -v /:/host` da control total de la máquina.
+# ── Identity ─────────────────────────────────────────────────────────
+# A dedicated user that is NOT a member of the docker group. This is what stops a
+# compromise of the application from escalating to root: on a typical single-user
+# box the login account often is in that group, and from there
+# `docker run -v /:/host` hands over the whole machine.
 User=docdrop
 Group=docdrop
 
 WorkingDirectory=/opt/docdrop
-# El guion lo hace opcional: el servicio arranca sin fichero de entorno (modo abierto).
+# The dash makes it optional: the service starts with no environment file (open mode).
 EnvironmentFile=-/etc/docdrop.env
 Environment=NODE_ENV=production
 Environment=PORT=3010
-# Escucha solo en loopback: la única vía de entrada es el proxy de Tailscale.
+# Listens on loopback only: the sole way in is a reverse proxy or a tunnel.
 Environment=HOSTNAME=127.0.0.1
 Environment=DOCDROP_DATA_DIR=/var/lib/docdrop
 
-# start.js ajusta el requestTimeout del servidor HTTP antes de ceder el control a
-# Next: el valor por defecto de Node (5 min) corta las subidas grandes a media
-# transferencia. Se puede afinar con DOCDROP_REQUEST_TIMEOUT_MS.
+# start.js raises the HTTP server's requestTimeout before handing control to Next:
+# Node's default (5 min) cuts large uploads off mid-transfer. Tune it with
+# DOCDROP_REQUEST_TIMEOUT_MS.
 ExecStart=/usr/local/bin/node start.js
 Restart=on-failure
 RestartSec=5s
 
-# ── Aislamiento del sistema de ficheros ──────────────────────────────
-# Todo el sistema en solo lectura salvo el directorio de datos. Ni siquiera puede
-# reescribir su propio código en /opt/docdrop (propiedad de root).
+# ── Filesystem isolation ─────────────────────────────────────────────
+# Everything read-only except the data directory. It cannot even rewrite its own
+# code in /opt/docdrop, which is owned by root.
 ProtectSystem=strict
 ReadWritePaths=/var/lib/docdrop
-# Sin acceso a /home: ahí están las claves SSH, los tokens y el resto de proyectos.
+# No access to /home: that is where SSH keys, tokens and other projects live.
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -43,7 +44,7 @@ ProtectProc=invisible
 ProcSubset=pid
 UMask=0077
 
-# ── Privilegios ──────────────────────────────────────────────────────
+# ── Privileges ───────────────────────────────────────────────────────
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
@@ -51,7 +52,7 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 PrivateUsers=yes
 
-# ── Núcleo ───────────────────────────────────────────────────────────
+# ── Kernel ───────────────────────────────────────────────────────────
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -61,20 +62,20 @@ ProtectHostname=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
 
-# ── Llamadas al sistema ──────────────────────────────────────────────
+# ── System calls ─────────────────────────────────────────────────────
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @obsolete @mount @swap @reboot
-# Nota: no se activa MemoryDenyWriteExecute porque el JIT de V8 necesita páginas
-# ejecutables y el proceso no arrancaría.
+# Note: MemoryDenyWriteExecute is deliberately not enabled — V8's JIT needs
+# executable pages and the process would not start.
 
-# ── Red ──────────────────────────────────────────────────────────────
-# Solo IPv4/IPv6/Unix; sin sockets raw ni netlink.
+# ── Network ──────────────────────────────────────────────────────────
+# IPv4/IPv6/Unix only; no raw sockets, no netlink.
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# (IPAddressDeny no se usa: este systemd está compilado sin BPF_FRAMEWORK y la
-# directiva no tendría efecto. La contención de red la da escuchar solo en loopback.)
+# (IPAddressDeny is not used: it silently does nothing on a systemd built without
+# BPF_FRAMEWORK. Network containment comes from listening on loopback only.)
 
-# ── Recursos: que un abuso no tumbe la máquina entera ────────────────
+# ── Resources: keep abuse from taking the machine down ───────────────
 MemoryMax=1G
 TasksMax=256
 LimitNOFILE=8192

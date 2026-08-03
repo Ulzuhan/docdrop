@@ -4,18 +4,19 @@ import { cleanupSessions } from "@/lib/upload-session";
 import { requireSession } from "@/lib/auth";
 
 /**
- * POST /api/cleanup — borra lo caducado, lo agotado y los directorios huérfanos que
- * dejan las subidas interrumpidas.
+ * POST /api/cleanup — deletes what expired, what ran out of downloads and the
+ * orphaned directories left behind by interrupted uploads.
  *
- * Requiere sesión: abierto permitiría a cualquiera forzar purgas.
- * Para un cron, autentícalo con la cookie de sesión o llama directamente a cleanup().
+ * Requires a session: left open, anyone could force purges. The server also sweeps
+ * on its own every hour (see instrumentation-node.ts), so this is only for forcing
+ * it by hand.
  */
 export async function POST() {
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
-  // Primero las subidas por trozos abandonadas: liberan el espacio que tenían
-  // reservado y dejan de estar protegidas del barrido general.
+  // Abandoned chunked uploads first: they release the space they had reserved and
+  // stop being protected from the general sweep.
   const abandoned = await cleanupSessions();
   const deleted = await cleanup();
 

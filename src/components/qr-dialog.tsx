@@ -14,16 +14,16 @@ import {
 } from "@/components/ui/dialog";
 
 /**
- * Muestra el enlace como código QR.
+ * Shows the link as a QR code.
  *
- * Es la forma más rápida de pasar un fichero del ordenador al móvil de otra persona
- * que está al lado: se abre el QR, lo escanea con la cámara y ya está descargando.
- * Sin dictar URLs ni pasar por otro canal de mensajería.
+ * The fastest way to get a file from the computer to the phone of whoever is next to
+ * you: open the code, point the camera, done. No dictating URLs and no detour
+ * through a messaging app.
  */
 export function QrDialog({ path, filename }: { path: string; filename?: string }) {
   const [open, setOpen] = useState(false);
-  // Un único estado, asignado cuando la promesa resuelve: así no hay setState
-  // síncrono dentro del efecto.
+  // A single piece of state, set when the promise resolves, so there is no
+  // synchronous setState inside the effect.
   const [qr, setQr] = useState<{ url: string; dataUrl: string } | null>(null);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export function QrDialog({ path, filename }: { path: string; filename?: string }
       errorCorrectionLevel: "M",
       margin: 2,
       width: 512,
-      // Alto contraste y siempre en claro: los lectores fallan con QR invertidos.
+      // High contrast and always light: readers struggle with inverted codes.
       color: { dark: "#0b0b12", light: "#ffffff" },
     })
       .then((dataUrl) => {
@@ -54,7 +54,7 @@ export function QrDialog({ path, filename }: { path: string; filename?: string }
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon" className="size-9" aria-label="Mostrar código QR" />
+          <Button variant="ghost" size="icon" className="size-9" aria-label="Show QR code" />
         }
       >
         <QrCode className="size-4" aria-hidden />
@@ -62,9 +62,9 @@ export function QrDialog({ path, filename }: { path: string; filename?: string }
 
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Escanea para descargar</DialogTitle>
+          <DialogTitle>Scan to download</DialogTitle>
           <DialogDescription className="truncate">
-            {filename ?? "Apunta con la cámara del móvil"}
+            {filename ?? "Point your phone camera at it"}
           </DialogDescription>
         </DialogHeader>
 
@@ -73,12 +73,12 @@ export function QrDialog({ path, filename }: { path: string; filename?: string }
             // eslint-disable-next-line @next/next/no-img-element -- data: URI generado en el cliente
             <img
               src={qr.dataUrl}
-              alt={`Código QR del enlace de descarga${filename ? ` de ${filename}` : ""}`}
+              alt={`QR code for the download link${filename ? ` of ${filename}` : ""}`}
               className="w-full max-w-[260px] rounded-xl border border-border bg-white p-3"
             />
           ) : (
             <div className="grid h-[260px] w-full max-w-[260px] place-items-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
-              Generando…
+Generating…
             </div>
           )}
 

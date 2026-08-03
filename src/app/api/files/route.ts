@@ -3,14 +3,14 @@ import { MAX_TOTAL_BYTES, isAvailable, listMeta, usedBytes } from "@/lib/store";
 import { authRequired, requireSession } from "@/lib/auth";
 
 /**
- * GET /api/files — ficheros activos, del más reciente al más antiguo.
+ * GET /api/files — active files, newest first.
  *
- * Lee siempre del disco, que es la única fuente de verdad; antes /api/upload servía
- * una segunda lista desde una caché en memoria que mostraba contadores obsoletos.
+ * Always reads from disk, the single source of truth; /api/upload used to serve a
+ * second listing from an in-memory cache that showed stale counters.
  */
 export async function GET() {
-  // Requiere sesión: esta lista enumera TODOS los enlaces activos, así que dejarla
-  // pública equivaldría a publicar todos los ficheros.
+  // Requires a session: this listing enumerates EVERY active link, so leaving it
+  // public would be the same as publishing every file.
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
@@ -22,7 +22,7 @@ export async function GET() {
   return NextResponse.json({
     files,
     storage: { usedBytes: await usedBytes(), totalBytes: MAX_TOTAL_BYTES },
-    // Para que el panel sepa si debe ofrecer "cerrar sesión".
+    // So the dashboard knows whether to offer a "log out" button.
     authEnabled: authRequired(),
   });
 }

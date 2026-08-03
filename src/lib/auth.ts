@@ -1,21 +1,20 @@
 /**
- * DocDrop — autenticación del panel.
+ * DocDrop — dashboard authentication.
  *
- * Modelo de acceso (pensado para estar expuesto a internet vía Tailscale Funnel):
+ * Access model (designed for a service that may be exposed to the internet):
  *
- *   PÚBLICO      /d/[id], /api/info/[id], /api/download/[id]
- *                El secreto es el id de 72 bits del enlace. Permite compartir un
- *                fichero con alguien sin darle credenciales.
+ *   PUBLIC         /d/[id], /api/info/[id], /api/download/[id]
+ *                  The 72-bit link id is the secret. Lets you share a file with
+ *                  someone without handing out credentials.
  *
- *   AUTENTICADO  /, /api/upload, /api/files, /api/cleanup
- *                Subir, ver la lista completa y purgar exige contraseña.
+ *   AUTHENTICATED  /, /api/upload, /api/files, /api/cleanup
+ *                  Uploading, listing everything and purging require the password.
  *
- * La sesión es una cookie firmada (HMAC-SHA256), sin estado en servidor: para
- * revocarlo todo basta con cambiar DOCDROP_SESSION_SECRET.
+ * The session is a signed cookie (HMAC-SHA256) with no server-side state: changing
+ * DOCDROP_SESSION_SECRET revokes everything.
  *
- * IMPORTANTE: el proxy hace solo una comprobación optimista (¿hay cookie?). La
- * autorización de verdad la hace requireSession() en cada ruta, tal y como
- * recomienda la documentación de Next.
+ * Authorisation is enforced by requireSession() inside each route, as Next's own
+ * documentation recommends — never by a proxy/middleware check alone.
  */
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
@@ -23,10 +22,10 @@ import { cookies } from "next/headers";
 export const SESSION_COOKIE = "docdrop_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-// ─── Configuración ──────────────────────────────────────────────────
+// ─── Configuration ──────────────────────────────────────────────────
 /**
- * Formato de DOCDROP_PASSWORD_HASH: `scrypt$<salt_hex>$<hash_hex>`.
- * Se genera con `npm run set-password`.
+ * DOCDROP_PASSWORD_HASH format: `scrypt$<salt_hex>$<hash_hex>`.
+ * Generated with `npm run set-password`.
  */
 function passwordHash(): string | null {
   return process.env.DOCDROP_PASSWORD_HASH?.trim() || null;
@@ -37,25 +36,25 @@ function sessionSecret(): string | null {
 }
 
 /**
- * La contraseña es OPCIONAL y funciona como interruptor:
+ * The password is OPTIONAL and acts as a switch:
  *
- *   sin DOCDROP_PASSWORD_HASH  → servicio abierto (uso en red privada o tras un
- *                                túnel temporal que se abre y se cierra a mano)
- *   con DOCDROP_PASSWORD_HASH  → subir, listar y purgar exigen contraseña
+ *   without DOCDROP_PASSWORD_HASH  → open service (private network, or behind a
+ *                                    temporary tunnel opened and closed by hand)
+ *   with DOCDROP_PASSWORD_HASH     → uploading, listing and purging need the password
  *
- * Para activarla: `npm run set-password`, pegar las dos líneas en el fichero de
- * entorno y reiniciar. No hace falta tocar código.
+ * To enable it: `npm run set-password`, paste the two lines into the environment
+ * file and restart. No code changes needed.
  */
 export function isConfigured(): boolean {
   return Boolean(passwordHash() && sessionSecret());
 }
 
-/** True si hay que exigir sesión para las operaciones del panel. */
+/** True if dashboard operations require a session. */
 export function authRequired(): boolean {
   return isConfigured();
 }
 
-// ─── Contraseña ─────────────────────────────────────────────────────
+// ─── Password ───────────────────────────────────────────────────────
 export function hashPassword(password: string, salt = randomBytes(16).toString("hex")): string {
   const derived = scryptSync(password.normalize("NFKC"), salt, 64).toString("hex");
   return `scrypt$${salt}$${derived}`;
@@ -76,13 +75,13 @@ export function verifyPassword(password: string): boolean {
   }
 
   const expectedBuf = Buffer.from(expected, "hex");
-  // Comparación en tiempo constante: una comparación normal filtra la contraseña
-  // byte a byte a través del tiempo de respuesta.
+  // Constant-time comparison: a normal one leaks the password byte by byte
+  // through the response time.
   if (derived.length !== expectedBuf.length) return false;
   return timingSafeEqual(derived, expectedBuf);
 }
 
-// ─── Firma de la cookie ─────────────────────────────────────────────
+// ─── Cookie signing ─────────────────────────────────────────────────
 function sign(payload: string, secret: string): string {
   return createHmac("sha256", secret).update(payload).digest("base64url");
 }
@@ -119,7 +118,7 @@ export function verifySessionToken(token: string | undefined): boolean {
   }
 }
 
-// ─── Uso desde rutas y páginas ──────────────────────────────────────
+// ─── Used from routes and pages ─────────────────────────────────────
 export async function hasSession(): Promise<boolean> {
   if (!authRequired()) return true;
   const store = await cookies();
@@ -127,8 +126,8 @@ export async function hasSession(): Promise<boolean> {
 }
 
 /**
- * Devuelve null si se puede continuar, o la respuesta 401 que debe devolverse.
- * Con la contraseña sin configurar, siempre deja pasar.
+ * Returns null if the request may proceed, or the 401 response to send back.
+ * With no password configured it always lets the request through.
  */
 export async function requireSession(): Promise<Response | null> {
   if (!authRequired()) return null;
@@ -138,8 +137,8 @@ export async function requireSession(): Promise<Response | null> {
 
 export const sessionCookieOptions = {
   httpOnly: true,
-  // Con Funnel siempre se sirve por HTTPS; en desarrollo local (http) se relaja
-  // para no romper el login.
+  // Behind a tunnel everything is HTTPS; relaxed in local development (http) so
+  // the login still works.
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax" as const,
   path: "/",
