@@ -17,8 +17,13 @@ import { join } from "path";
  * Data directory. Configurable because in production the service runs under a
  * dedicated user and stores files in /var/lib/docdrop, outside the code directory.
  */
+// turbopackIgnore keeps the build tracer from following this path: it cannot resolve
+// process.cwd() statically, assumes the whole project is needed and drags every file
+// into the standalone output (201 MB instead of ~40 MB). The directory is created at
+// runtime, so there is nothing to trace here anyway.
 export const UPLOAD_DIR =
-  process.env.DOCDROP_DATA_DIR?.trim() || join(process.cwd(), ".docdrop-uploads");
+  process.env.DOCDROP_DATA_DIR?.trim() ||
+  join(/* turbopackIgnore: true */ process.cwd(), ".docdrop-uploads");
 
 function envBytes(name: string, fallback: number): number {
   const raw = Number(process.env[name]);

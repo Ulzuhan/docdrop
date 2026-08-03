@@ -31,4 +31,33 @@ copyDir(path.join(root, "public"), path.join(standalone, "public"));
 // only has to copy this one directory.
 fs.copyFileSync(path.join(__dirname, "start.js"), path.join(standalone, "start.js"));
 
+// The build tracer cannot resolve the data directory statically (it comes from an env
+// var or process.cwd()), so it traces the whole project and copies UPLOADED FILES into
+// the standalone output — user content inside a deployment artifact. Neither
+// outputFileTracingExcludes (ignored by the Turbopack tracer) nor a turbopackIgnore
+// comment prevents it, so it is removed here, where the outcome is guaranteed.
+const strayData = path.join(standalone, path.basename(dataDirName()));
+if (fs.existsSync(strayData)) {
+  const size = dirSize(strayData);
+  fs.rmSync(strayData, { recursive: true, force: true });
+  console.log(`[docdrop] removed ${(size / 1024 ** 2).toFixed(0)} MB of traced upload data from the standalone output`);
+}
+
+function dataDirName() {
+  const configured = process.env.DOCDROP_DATA_DIR?.trim();
+  return configured ? path.basename(configured) : ".docdrop-uploads";
+}
+
+function dirSize(dir) {
+  let total = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+    if (entry.isFile()) {
+      try {
+        total += fs.statSync(path.join(entry.parentPath ?? entry.path, entry.name)).size;
+      } catch {}
+    }
+  }
+  return total;
+}
+
 console.log("[docdrop] standalone ready (static assets + launcher)");

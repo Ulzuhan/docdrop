@@ -340,6 +340,20 @@ When a file runs out of downloads its content is deleted but a tombstone is kept
 
 ---
 
+## Dependencies
+
+`npm audit` reports **0 vulnerabilities**. Two things were needed to get there and are
+worth knowing if the report ever looks alarming again:
+
+- **`npm audit` over-reports Next.** It merges the ranges of every advisory, including
+  the ones that only affect `canary`/`preview` branches, so a version that is already
+  patched still shows up as affected. Checking the advisories one by one
+  (`gh api /advisories/GHSA-...`) showed all nine were fixed in 16.2.11 — the version
+  here is newer. **Never run `npm audit fix --force` on this**: its "fix" is to
+  downgrade Next to 9.3.3, a release from 2020.
+- **`overrides`** pin `sharp` and `postcss` to patched versions inside Next's own
+  dependency tree, where the real (not over-reported) advisories were.
+
 ## Implementation notes
 
 Things that were hard to find and are worth not breaking again:
@@ -359,6 +373,12 @@ Things that were hard to find and are worth not breaking again:
   `crypto` "to allow large uploads"; it did absolutely nothing.
 - **`Date.now()` is never read during render.** It is impure and it also left the
   expiry countdowns frozen at whatever value they had when the page opened.
+- **The build tracer copies uploaded files into the standalone output.** It cannot
+  resolve the data directory statically (env var or `process.cwd()`), so it traces the
+  whole project — putting user content inside the deployment artifact and inflating it
+  from 34 MB to 200+ MB. Neither `outputFileTracingExcludes` (ignored by the Turbopack
+  tracer) nor a `turbopackIgnore` comment prevents it, so the postbuild step removes
+  it explicitly. If the data directory is ever renamed, keep that step in sync.
 
 This project targets a Next version whose conventions differ from older docs
 (`middleware.ts` → `proxy.ts`, `RouteContext<'/route'>`, route handlers uncached by

@@ -37,10 +37,12 @@ const nextConfig: NextConfig = {
   // native modules ("fs", "path", "crypto") there does nothing at all, and certainly
   // does not raise any upload limit — size is enforced by /api/upload, which streams.
 
-  // Pins the workspace root, so a stray package.json further up the tree cannot make
-  // Next infer the wrong one and warn on every build.
+  // Pins the workspace root to this directory. Without it, a stray lockfile higher
+  // up the tree makes Next infer the wrong root and trace far more than it should.
+  // A relative path avoids the filesystem call that would pull the config into the
+  // trace itself.
   turbopack: {
-    root: __dirname,
+    root: ".",
   },
 
   // Do not advertise the server technology to whoever scans it.
