@@ -23,7 +23,8 @@ const created = [];
 function check(name, actual, expected) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
   console.log(`  ${ok ? "✓" : "✗"} ${name}${ok ? "" : `  (esperado ${JSON.stringify(expected)}, obtenido ${JSON.stringify(actual)})`}`);
-  ok ? passed++ : failed++;
+  if (ok) passed++;
+  else failed++;
 }
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
