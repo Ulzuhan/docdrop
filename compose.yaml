@@ -30,5 +30,31 @@ services:
     cap_drop:
       - ALL
 
+  # ── Optional: expose it through a tunnel, no ports on the host ──────
+  #
+  # With this service enabled you can drop the `ports:` block above entirely: the
+  # tunnel reaches DocDrop over the internal compose network, so nothing is bound on
+  # the host at all. cloudflared sets X-Forwarded-For to the real client IP, which is
+  # what the rate limiter reads.
+  #
+  # Quick tunnel (throwaway URL, printed in the logs — good for one-off sharing):
+  #
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate --url http://docdrop:3010
+  #   depends_on: [docdrop]
+  #
+  # Named tunnel on your own domain (stable URL; create the tunnel first and put its
+  # token in the environment):
+  #
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run
+  #   environment:
+  #     TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+  #   depends_on: [docdrop]
+
 volumes:
   docdrop-data:

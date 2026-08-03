@@ -37,6 +37,12 @@ Uploads live in the `/data` volume, so replacing the container never loses them.
 The image runs as an unprivileged user, ships a healthcheck, and is built for
 `linux/amd64` and `linux/arm64`.
 
+Exposing it works the same as any other container — a tunnel or reverse proxy points
+at the port. Either run the tunnel on the host against `127.0.0.1:3010`, or add
+cloudflared as a second service in Compose so it reaches DocDrop over the internal
+network and **nothing is published on the host at all**. `compose.yaml` has both
+variants commented in.
+
 To set a password:
 
 ```bash
