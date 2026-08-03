@@ -17,14 +17,20 @@ de 7 GB entre móviles y ordenadores **sin que WhatsApp o Telegram lo recomprima
 
 ```bash
 npm install
-npm run build          # compila y prepara la salida standalone
-npm run start          # arranca en http://127.0.0.1:3010
+npm run build            # compila y prepara la salida standalone
+PORT=3456 npm run start  # arranca en http://127.0.0.1:3456
 ```
 
-`npm run start` **no** es `next start`: usa `scripts/start.js`, que ajusta los tiempos
-de espera del servidor HTTP antes de ceder el control a Next (ver
-[Subidas largas](#muro-2--el-límite-de-5-minutos-de-node)). Arrancar con `next start` a
-secas reintroduce el corte a los 5 minutos.
+> **Arráncalo siempre con `npm run start`, nunca con `next start`.**
+>
+> `npm run start` ejecuta `scripts/start.js`, que ajusta el `requestTimeout` del
+> servidor HTTP antes de ceder el control a Next (ver
+> [Muro 2](#muro-2--el-límite-de-5-minutos-de-node)). Arrancar con `npx next start`
+> reintroduce el corte a los 5 minutos: las subidas grandes vuelven a morir a media
+> transferencia. Además `next start` es incompatible con `output: standalone`.
+
+El puerto sale de `PORT` (3010 si no se indica). El bot de Telegram que levanta la
+aplicación a demanda usa el **3456**.
 
 Para desarrollo, `npm run dev` funciona con normalidad.
 
@@ -35,10 +41,10 @@ fuera de casa hay dos vías:
 
 ```bash
 # Túnel público temporal (se cierra con Ctrl-C)
-cloudflared tunnel --url http://127.0.0.1:3010
+cloudflared tunnel --url http://127.0.0.1:3456
 
 # Solo para los dispositivos de tu tailnet
-tailscale serve --bg --https=8454 http://127.0.0.1:3010
+tailscale serve --bg --https=8454 http://127.0.0.1:3456
 ```
 
 Ambas dan HTTPS, que hace falta para instalar la PWA y para que funcione lo de
@@ -57,7 +63,7 @@ Description=DocDrop
 [Service]
 WorkingDirectory=%h/proyectos-desarrollo/web/nextjs/docdrop
 ExecStart=/usr/local/bin/node scripts/start.js
-Environment=PORT=3010
+Environment=PORT=3456
 Restart=on-failure
 [Install]
 WantedBy=default.target
@@ -243,7 +249,7 @@ Todo por variables de entorno; ninguna es obligatoria.
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
-| `PORT` | 3010 | Puerto de escucha |
+| `PORT` | 3010 | Puerto de escucha (el bot usa 3456) |
 | `DOCDROP_DATA_DIR` | `.docdrop-uploads` | Dónde viven los ficheros |
 | `DOCDROP_MAX_FILE_BYTES` | 10 GB | Tamaño máximo por fichero |
 | `DOCDROP_MAX_TOTAL_BYTES` | 20 GB | Ocupación total; evita llenar el disco |
@@ -286,7 +292,7 @@ Los ficheros caducados se borran al intentar acceder a ellos, pero conviene un b
 periódico que recoja también las subidas abandonadas:
 
 ```bash
-curl -X POST http://127.0.0.1:3010/api/cleanup
+curl -X POST http://127.0.0.1:3456/api/cleanup
 ```
 
 Al agotarse las descargas de un fichero se borra su contenido pero se conserva una
