@@ -37,6 +37,11 @@ Uploads live in the `/data` volume, so replacing the container never loses them.
 The image runs as an unprivileged user, ships a healthcheck, and is built for
 `linux/amd64` and `linux/arm64`.
 
+`:latest` is the most recent release. Pin `:1.0.1` if you would rather decide when
+to move, or `:1.0` / `:1` to take patches automatically. `:main` is whatever is on
+the default branch and is not a release — useful for trying something out, not for
+running.
+
 Exposing it works the same as any other container — a tunnel or reverse proxy points
 at the port. Either run the tunnel on the host against `127.0.0.1:3010`, or add
 cloudflared as a second service in Compose so it reaches DocDrop over the internal
