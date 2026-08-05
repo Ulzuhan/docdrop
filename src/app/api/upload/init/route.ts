@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MAX_FILE_SIZE, MAX_TOTAL_BYTES, usedBytes } from "@/lib/store";
+import { MAX_FILE_SIZE, withQuota } from "@/lib/store";
 import { CHUNK_SIZE, createSession } from "@/lib/upload-session";
 import { requireSession } from "@/lib/auth";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -47,24 +47,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File too large" }, { status: 413 });
   }
 
-  // The quota is checked up front: no point letting half a film upload only to
-  // reject it at the end.
-  const used = await usedBytes();
-  if (used + size > MAX_TOTAL_BYTES) {
+  // The quota is checked up front — no point letting half a film upload only to be
+  // rejected at the end — and the space is reserved under the same lock as the
+  // check, so two uploads starting at once cannot both claim the last free gigabyte.
+  const session = await withQuota(size, () =>
+    createSession({
+      filename,
+      size,
+      mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
+      ttlHours: body.ttlHours,
+      maxDownloads: body.maxDownloads,
+      uploadedBy: body.uploadedBy,
+    })
+  );
+
+  if (!session) {
     return NextResponse.json(
       { error: "Not enough storage left for this file." },
       { status: 507 }
     );
   }
-
-  const session = await createSession({
-    filename,
-    size,
-    mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
-    ttlHours: body.ttlHours,
-    maxDownloads: body.maxDownloads,
-    uploadedBy: body.uploadedBy,
-  });
 
   return NextResponse.json({
     uploadId: session.id,

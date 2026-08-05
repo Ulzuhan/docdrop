@@ -7,7 +7,10 @@ import {
   claimDownload,
   contentDisposition,
   isInlineSafe,
+  isResumedTransfer,
   isValidId,
+  readMeta,
+  registerTransfer,
   retireIfExhausted,
 } from "@/lib/store";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -21,15 +24,16 @@ const GONE = { expired: "File expired", exhausted: "Max downloads reached" } as 
  *  - Streamed, not buffered: readFile() used to pull the whole file into memory.
  *  - The download counter is incremented in a serialised way (see claimDownload);
  *    two simultaneous downloads used to be able to slip past the limit.
- *  - Range requests are supported, so large downloads can be resumed; a continuation
- *    Range request does not count as a new download.
+ *  - Range requests are supported, so large downloads can be resumed; continuing a
+ *    transfer that was already counted does not count as a new download.
  *  - Content-Length comes from the real file, not from the size stored in meta.json.
  */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/download/[id]">) {
   // Public route (the id is the secret), but rate-limited so nobody uses the service
   // as a bandwidth cannon or tries to brute-force ids. The limit is generous because
   // a Range download generates several requests.
-  const limit = rateLimit(`download:${clientIp(request)}`, 240, 60_000);
+  const client = clientIp(request);
+  const limit = rateLimit(`download:${client}`, 240, 60_000);
   if (!limit.allowed) return tooManyRequests(limit);
 
   const { id } = await ctx.params;
@@ -41,12 +45,25 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
   // ?inline=1 serves the file for viewing in the browser (a <video> streaming, for
   // instance) instead of forcing a download. Previewing does not count as a download:
   // it would be absurd for opening the preview to burn the quota.
-  const inline = request.nextUrl.searchParams.get("inline") === "1";
+  //
+  // Only types the browser can actually display qualify. Asking for a .zip inline is
+  // not a preview, it is the download — and it used to be served free of charge,
+  // unlimited times, for any type at all.
+  //
+  // The type is what decides whether this counts, so the metadata has to be read
+  // before claiming. claimDownload() reads it again under its own lock; that read is
+  // the one that decides availability, this one only classifies the request.
+  const preview =
+    request.nextUrl.searchParams.get("inline") === "1" &&
+    isInlineSafe((await readMeta(id))?.mimeType ?? "");
 
+  // A Range rides for free only when it continues a transfer this client already
+  // paid for. See registerTransfer: trusting the range itself let `bytes=-<size>`
+  // hand out the whole file uncounted.
   const range = request.headers.get("range");
-  const isContinuation = Boolean(range && !/^bytes=0-/.test(range));
+  const resuming = Boolean(range) && isResumedTransfer(id, client);
 
-  const claim = await claimDownload(id, !isContinuation && !inline);
+  const claim = await claimDownload(id, !preview && !resuming);
   if (!claim.ok) {
     if (claim.reason === "not_found") {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
@@ -55,6 +72,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
   }
   const meta = claim.meta;
 
+  // Keeps the transfer alive so this client's continuations are recognised as part
+  // of the download just counted, and slides forward while it lasts.
+  if (!preview) registerTransfer(id, client);
+
   let size: number;
   try {
     size = (await stat(blobPath(id))).size;
@@ -62,12 +83,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     return NextResponse.json({ error: "File data not found" }, { status: 404 });
   }
 
-  // Only content that cannot run scripts in our origin is served inline.
-  const serveInline = inline && isInlineSafe(meta.mimeType);
-
   const headers = new Headers({
     "Content-Type": meta.mimeType,
-    "Content-Disposition": contentDisposition(meta.originalName, serveInline),
+    // Only content that cannot run scripts in our origin is served inline.
+    "Content-Disposition": contentDisposition(meta.originalName, preview),
     "X-Content-Type-Options": "nosniff",
     "Accept-Ranges": "bytes",
     "Cache-Control": "no-store",
@@ -106,7 +125,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     headers.set("Content-Length", String(end - start + 1));
 
     const partial = createReadStream(blobPath(id), { start, end });
-    if (!inline) partial.on("close", () => void retireIfExhausted(id).catch(() => {}));
+    if (!preview) partial.on("close", () => void retireIfExhausted(id).catch(() => {}));
     return new NextResponse(Readable.toWeb(partial) as unknown as ReadableStream, {
       status: 206,
       headers,
@@ -119,7 +138,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
   const stream = createReadStream(blobPath(id));
   // When the transfer ends, if this was the last allowed download, it is burned.
   // A preview does not consume downloads, so it cannot exhaust them either.
-  if (!inline) stream.on("close", () => void retireIfExhausted(id).catch(() => {}));
+  if (!preview) stream.on("close", () => void retireIfExhausted(id).catch(() => {}));
 
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
     status: 200,

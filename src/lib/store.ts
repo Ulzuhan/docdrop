@@ -339,6 +339,79 @@ export async function retireIfExhausted(id: string): Promise<void> {
   });
 }
 
+// ─── Transfer continuations ─────────────────────────────────────────
+/**
+ * A resumed download must not be counted twice: an interrupted transfer picks up
+ * with `Range: bytes=<n>-`, and charging for that would burn the quota of anyone on
+ * a flaky connection.
+ *
+ * The test used to be "the range does not start at byte 0", but that is something
+ * the client chooses freely: `Range: bytes=1-` returned everything but the first
+ * byte, and `Range: bytes=-<size>` the WHOLE file, both uncounted and as many times
+ * as asked. maxDownloads was decorative for anyone holding the link.
+ *
+ * Now only a client that already paid for a download gets free continuations. The
+ * entry slides forward while the transfer is alive and expires an hour after the
+ * last byte, so coming back much later counts as the new download it is.
+ *
+ * Caveat: this is keyed by client, and clientIp() collapses to "direct" when there
+ * is no proxy in front (see ratelimit.ts). In that deployment continuations are
+ * shared between clients — the same blind spot the rate limiter already has.
+ */
+const CONTINUATION_TTL = 60 * 60 * 1000;
+const transfers = new Map<string, number>();
+let lastTransferSweep = 0;
+
+const transferKey = (id: string, client: string) => `${id} ${client}`;
+
+/** Records a counted transfer, so this client's continuations are recognised. */
+export function registerTransfer(id: string, client: string): void {
+  const now = Date.now();
+  // Lazy sweep, so the Map does not grow with every one-off download.
+  if (now - lastTransferSweep > CONTINUATION_TTL) {
+    lastTransferSweep = now;
+    for (const [key, at] of transfers) {
+      if (now - at > CONTINUATION_TTL) transfers.delete(key);
+    }
+  }
+  transfers.set(transferKey(id, client), now);
+}
+
+/** True if a Range request continues a transfer this client already paid for. */
+export function isResumedTransfer(id: string, client: string): boolean {
+  const at = transfers.get(transferKey(id, client));
+  return at !== undefined && Date.now() - at < CONTINUATION_TTL;
+}
+
+// ─── Storage reservation ────────────────────────────────────────────
+/**
+ * Reserves room for a new entry and creates it under the same lock.
+ *
+ * The check and the creation used to be separate steps with a cached usage figure
+ * in between, so several uploads starting at once each read the same stale total
+ * and every one of them reserved the whole remaining quota: five 100 MB uploads
+ * fitted into a 100 MB store, and even two a second apart did. Holding the lock
+ * across both, and dropping the cache on the way in and out, is what turns the
+ * quota into an actual limit.
+ *
+ * Returns null when there is not enough room. The lock key cannot collide with an
+ * entry id: ids are hex.
+ */
+const QUOTA_LOCK = "quota";
+
+export function withQuota<T>(bytes: number, create: () => Promise<T>): Promise<T | null> {
+  return serialize(QUOTA_LOCK, async () => {
+    invalidateUsedBytes();
+    if ((await usedBytes()) + bytes > MAX_TOTAL_BYTES) return null;
+    try {
+      return await create();
+    } finally {
+      // Even a half-created entry occupies space: the next caller must see it.
+      invalidateUsedBytes();
+    }
+  });
+}
+
 // ─── Upload parameter validation ────────────────────────────────────
 export function clampTtlHours(raw: unknown): number {
   const n = Number(raw);
