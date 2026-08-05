@@ -1,6 +1,6 @@
 {
   "name": "docdrop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Self-hosted file sharing with expiring links: resumable chunked uploads for multi-GB files, previews, and streamed ZIP downloads.",
   "license": "MIT",
   "author": "Ulzuhan (https://github.com/Ulzuhan)",
