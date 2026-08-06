@@ -1,0 +1,52 @@
+name: CI
+
+# Lint, types and the upload-protocol suite on every push and PR. The container
+# workflow only proves the image builds; this one proves the code works.
+#
+# Two orderings that are not obvious:
+#
+# - `tsc --noEmit` must run AFTER `next build`, because Next generates the types
+#   the routes rely on (RouteContext in .next/types) during the build. Running it
+#   first fails with TS2304 on every dynamic route.
+# - The protocol suite runs against an already running server, by design (it is
+#   what verifies start.js raising the request timeout, not a mock). PORT is set
+#   on both sides: the server would otherwise listen on Next's default 3000 while
+#   the suite probes 3010.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      PORT: 3010
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # node:22 to match the runtime image in the Dockerfile.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run build
+
+      - run: npx tsc --noEmit
+
+      - name: Run the upload-protocol suite against the built server
+        run: |
+          npm run start &
+          for i in $(seq 1 30); do
+            curl -sf "http://127.0.0.1:$PORT/api/files" >/dev/null && break
+            sleep 1
+          done
+          npm run test:upload
