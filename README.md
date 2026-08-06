@@ -1,5 +1,10 @@
 # DocDrop
 
+[![CI](https://github.com/Ulzuhan/docdrop/actions/workflows/ci.yml/badge.svg)](https://github.com/Ulzuhan/docdrop/actions/workflows/ci.yml)
+[![Container image](https://github.com/Ulzuhan/docdrop/actions/workflows/docker.yml/badge.svg)](https://github.com/Ulzuhan/docdrop/pkgs/container/docdrop)
+[![Release](https://img.shields.io/github/v/release/Ulzuhan/docdrop)](https://github.com/Ulzuhan/docdrop/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Self-hosted file sharing with expiring links. Someone uploads a file, shares the
 link, and whoever wants it downloads it. The file deletes itself once it expires or
 runs out of downloads.
@@ -13,6 +18,13 @@ The problem it was built for: passing a 7 GB GoPro video between phones and lapt
 - Multi-file and whole-folder uploads, chunked and resumable
 - Preview video, audio and images before downloading
 - Download several files at once as a streamed ZIP
+
+![Dashboard: drop zone with per-upload authorship, download limit and expiry, and the active files with their remaining life](assets/dashboard.png)
+
+<p align="center">
+  <img src="assets/mobile.png" alt="The dashboard on a phone: single column, touch-sized controls" width="49%">
+  <img src="assets/download.png" alt="What the recipient of a link sees: preview, remaining downloads and expiry" width="49%">
+</p>
 
 ---
 
