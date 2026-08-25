@@ -26,27 +26,33 @@ export function Landing() {
 
       <main className="flex-1 pb-safe">
         {/* ── Hero ───────────────────────────────────────────────────── */}
-        <section className="mx-auto w-full max-w-3xl px-4 pt-12 pb-14 text-center sm:px-6 sm:pt-20 sm:pb-20">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1 text-xs text-muted-foreground">
-            <ShieldCheck className="size-3.5" aria-hidden />
-            Self-hosted · accounts approved by hand
-          </span>
+        <section className="mx-auto w-full max-w-5xl overflow-x-clip px-4 pt-12 pb-16 sm:px-6 sm:pt-20 sm:pb-24">
+          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+            <div className="text-center lg:text-left">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1 text-xs text-muted-foreground">
+                <ShieldCheck className="size-3.5" aria-hidden />
+                Self-hosted · accounts approved by hand
+              </span>
 
-          <h1 className="mt-5 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-            Send the whole file.
-          </h1>
-          <p className="mx-auto mt-5 max-w-xl text-[17px] leading-relaxed text-muted-foreground text-pretty">
-            The video off your GoPro, untouched. No recompressing it into mush,
-            no ten-minute upload that dies at 80%, no account needed on the
-            other end — just a link that expires when you say so.
-          </p>
+              <h1 className="mt-5 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+                Send the whole file.
+              </h1>
+              <p className="mx-auto mt-5 max-w-xl text-[17px] leading-relaxed text-muted-foreground text-pretty lg:mx-0">
+                The video off your GoPro, untouched. No recompressing it into
+                mush, no ten-minute upload that dies at 80%, no account needed
+                on the other end — just a link that expires when you say so.
+              </p>
 
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button size="lg" className="h-12 px-7 text-base" render={<Link href="/api/auth/login">Sign in to upload</Link>} />
+              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
+                <Button size="lg" className="h-12 px-7 text-base" render={<Link href="/api/auth/login">Sign in to upload</Link>} />
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Got a guest link instead? Open it — it works without an account.
+              </p>
+            </div>
+
+            <DemoCard />
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Got a guest link instead? Open it — it works without an account.
-          </p>
         </section>
 
         {/* ── Qué lo hace distinto ───────────────────────────────────── */}
@@ -92,6 +98,69 @@ export function Landing() {
     </>
   );
 }
+
+/**
+ * La pantalla que importa: un archivo grande subido, con su cuenta atrás y su
+ * enlace listo para mandar. Enseñar el resultado dice más que describirlo.
+ */
+function DemoCard() {
+  return (
+    <div className="relative mx-auto w-full max-w-sm">
+      {/* Un resplandor detrás, para que la tarjeta se lea iluminada y no pegada. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-8 -z-10 rounded-[3rem] opacity-70 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(60% 60% at 50% 40%, color-mix(in oklch, var(--primary) 18%, transparent), transparent 70%)",
+        }}
+      />
+
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <p className="text-sm font-medium">Active files</p>
+          <p className="text-xs tabular-nums text-muted-foreground">6.2 GB / 20 GB</p>
+        </div>
+
+        <ul className="divide-y divide-border">
+          {DEMO_FILES.map((f) => (
+            <li key={f.name} className="flex items-center gap-3 px-5 py-3.5">
+              <span aria-hidden className="text-lg">{f.emoji}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{f.name}</p>
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  {f.size} · {f.left}
+                </p>
+              </div>
+              {f.uploading ? (
+                <span className="shrink-0 text-xs tabular-nums text-primary">{f.pct}%</span>
+              ) : (
+                <span className="shrink-0 rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
+                  link copied
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <div className="border-t border-border bg-secondary/30 px-5 py-3.5">
+          <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+            <div className="h-full w-[68%] rounded-full bg-primary" />
+          </div>
+          <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">
+            uploading 4.1 GB of 6.0 GB · resumes if the connection drops
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const DEMO_FILES = [
+  { emoji: "🎬", name: "GX010248.MP4", size: "6.0 GB", left: "expires in 2d 14h", uploading: true, pct: 68 },
+  { emoji: "🖼", name: "fotos-siargao.zip", size: "218 MB", left: "expires in 22h", uploading: false, pct: 100 },
+  { emoji: "📄", name: "contrato-firmado.pdf", size: "1.2 MB", left: "1 download left", uploading: false, pct: 100 },
+];
 
 const FEATURES = [
   {
