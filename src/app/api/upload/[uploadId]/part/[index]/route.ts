@@ -12,7 +12,7 @@ import {
   partSize,
   readSession,
 } from "@/lib/upload-session";
-import { requireSession } from "@/lib/auth";
+import { requireUploadAccess } from "@/lib/guest";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
@@ -28,7 +28,7 @@ export async function PUT(
   request: NextRequest,
   ctx: RouteContext<"/api/upload/[uploadId]/part/[index]">
 ) {
-  const unauthorized = await requireSession();
+  const unauthorized = await requireUploadAccess(request);
   if (unauthorized) return unauthorized;
 
   // Generous quota: a large upload is hundreds of legitimate chunks.

@@ -27,6 +27,10 @@ interface Props {
   ttlHours: number;
   maxDownloads: number;
   onCompleted: () => void;
+  /** Extra headers on every upload request — how the guest page authenticates. */
+  headers?: Record<string, string>;
+  /** Called on 401. The dashboard goes to /login; the guest page shows its own error. */
+  onUnauthorized?: () => void;
 }
 
 export interface UploadQueueHandle {
@@ -41,7 +45,13 @@ export interface UploadQueueHandle {
  * many connections and nothing finishes, which with multi-GB videos is the worst
  * possible outcome. Two at a time keeps the link busy and something visibly moving.
  */
-export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
+export function useUploadQueue({
+  ttlHours,
+  maxDownloads,
+  onCompleted,
+  headers,
+  onUnauthorized,
+}: Props) {
   const [items, setItems] = useState<QueueItem[]>([]);
   // The queue lives in a ref and state is just its mirror for painting: the logic
   // needs to read the current list outside the render cycle, and this way an object
@@ -124,6 +134,7 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
         maxDownloads: optionsRef.current.maxDownloads,
         uploadedBy: getUploaderName() || undefined,
         onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
+        headers,
       });
       handles.current.set(key, handle);
 
@@ -136,7 +147,12 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : "Upload failed";
           if (message === "UNAUTHORIZED") {
-            window.location.href = "/login";
+            if (onUnauthorized) {
+              update(key, { state: "error", error: "No longer authorised" });
+              onUnauthorized();
+            } else {
+              window.location.href = "/login";
+            }
             return;
           }
           if (message === "ABORTED") {
@@ -154,7 +170,7 @@ export function useUploadQueue({ ttlHours, maxDownloads, onCompleted }: Props) {
           setTimeout(() => pumpRef.current(), 0);
         });
     }
-  }, [acquireWakeLock, releaseWakeLock, onCompleted, update]);
+  }, [acquireWakeLock, releaseWakeLock, onCompleted, update, headers, onUnauthorized]);
 
   useEffect(() => {
     pumpRef.current = pump;

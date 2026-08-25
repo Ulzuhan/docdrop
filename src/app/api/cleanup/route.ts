@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cleanup } from "@/lib/store";
 import { cleanupSessions } from "@/lib/upload-session";
+import { cleanupGuestLinks } from "@/lib/guest";
 import { requireSession } from "@/lib/auth";
 
 /**
@@ -19,10 +20,12 @@ export async function POST() {
   // stop being protected from the general sweep.
   const abandoned = await cleanupSessions();
   const deleted = await cleanup();
+  const expiredGuestLinks = await cleanupGuestLinks();
 
   return NextResponse.json({
     deleted,
     abandonedUploads: abandoned,
+    expiredGuestLinks,
     count: deleted.length + abandoned.length,
     timestamp: Date.now(),
   });

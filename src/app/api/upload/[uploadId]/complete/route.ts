@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { completeSession, readSession } from "@/lib/upload-session";
-import { requireSession } from "@/lib/auth";
+import { requireUploadAccess } from "@/lib/guest";
 
 /**
  * POST /api/upload/[uploadId]/complete — closes the upload.
@@ -9,10 +9,10 @@ import { requireSession } from "@/lib/auth";
  * the list, so the client can re-send them instead of writing the upload off.
  */
 export async function POST(
-  _request: Request,
+  request: Request,
   ctx: RouteContext<"/api/upload/[uploadId]/complete">
 ) {
-  const unauthorized = await requireSession();
+  const unauthorized = await requireUploadAccess(request);
   if (unauthorized) return unauthorized;
 
   const { uploadId } = await ctx.params;

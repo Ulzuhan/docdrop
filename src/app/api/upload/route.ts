@@ -19,7 +19,12 @@ import {
   writeMeta,
   type FileMeta,
 } from "@/lib/store";
-import { requireSession } from "@/lib/auth";
+import {
+  MAX_GUEST_FILE_TTL_HOURS,
+  guestFromRequest,
+  recordGuestUpload,
+  requireUploadAccess,
+} from "@/lib/guest";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
@@ -37,10 +42,12 @@ import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
  * constant and independent of the file size.
  */
 export async function POST(request: NextRequest) {
-  // Uploading requires a session: exposed to the internet, an open upload endpoint
-  // is free anonymous hosting and a trivial way to fill the disk.
-  const unauthorized = await requireSession();
+  // Uploading requires a session or a live guest link: exposed to the internet, an
+  // open upload endpoint is free anonymous hosting and a trivial way to fill the disk.
+  const unauthorized = await requireUploadAccess(request);
   if (unauthorized) return unauthorized;
+
+  const guest = await guestFromRequest(request);
 
   const limit = rateLimit(`upload:${clientIp(request)}`, 30, 60 * 60 * 1000);
   if (!limit.allowed) return tooManyRequests(limit);
@@ -61,7 +68,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Malformed x-filename header" }, { status: 400 });
   }
 
-  const ttlHours = clampTtlHours(request.headers.get("x-ttl-hours"));
+  // Guests get a shorter ceiling, enforced server-side (see /api/upload/init).
+  const ttlHours = guest
+    ? Math.min(clampTtlHours(request.headers.get("x-ttl-hours")), MAX_GUEST_FILE_TTL_HOURS)
+    : clampTtlHours(request.headers.get("x-ttl-hours"));
   const maxDownloads = clampMaxDownloads(request.headers.get("x-max-downloads"));
 
   // Early rejection when the client already declares an excessive size, so we do
@@ -131,13 +141,15 @@ export async function POST(request: NextRequest) {
       expiresAt: now + ttlHours * 60 * 60 * 1000,
       downloadCount: 0,
       maxDownloads,
-      uploadedBy: sanitizeUploader(
-        request.headers.get("x-uploaded-by")
-          ? decodeURIComponent(request.headers.get("x-uploaded-by")!)
-          : undefined
-      ),
+      uploadedBy:
+        sanitizeUploader(
+          request.headers.get("x-uploaded-by")
+            ? decodeURIComponent(request.headers.get("x-uploaded-by")!)
+            : undefined
+        ) ?? guest?.label,
     };
     await writeMeta(meta);
+    if (guest) await recordGuestUpload(guest.token);
 
     return NextResponse.json({
       id,

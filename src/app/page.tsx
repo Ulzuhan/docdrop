@@ -9,6 +9,7 @@ import { SiteHeader } from "@/components/site-header";
 import { FileRow, type FileInfo } from "@/components/file-row";
 import { UploadQueue, useUploadQueue } from "@/components/upload-queue";
 import { UploaderNameField } from "@/components/uploader-name-field";
+import { GuestLinksDialog } from "@/components/guest-links-dialog";
 
 const TTL_OPTIONS = [
   { hours: 1, label: "1 h" },
@@ -293,6 +294,9 @@ Tap to choose files
                 <FolderUp className="size-4" aria-hidden />
                 Folder
               </Button>
+              {/* Without a password everything is open and a guest link grants
+                  nothing a stranger does not already have. */}
+              {authEnabled && <GuestLinksDialog />}
               <UploaderNameField />
             </div>
 

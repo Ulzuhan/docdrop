@@ -8,6 +8,7 @@
 import { authRequired } from "@/lib/auth";
 import { MAX_TOTAL_BYTES, UPLOAD_DIR, cleanup } from "@/lib/store";
 import { cleanupSessions } from "@/lib/upload-session";
+import { cleanupGuestLinks } from "@/lib/guest";
 
 /** How often expired content is purged. */
 const SWEEP_INTERVAL = 60 * 60 * 1000;
@@ -37,10 +38,11 @@ async function sweep() {
   try {
     const abandoned = await cleanupSessions();
     const deleted = await cleanup();
-    if (deleted.length + abandoned.length > 0) {
+    const guestLinks = await cleanupGuestLinks();
+    if (deleted.length + abandoned.length + guestLinks > 0) {
       console.log(
         `[docdrop] sweep: ${deleted.length} expired, ` +
-          `${abandoned.length} abandoned uploads`
+          `${abandoned.length} abandoned uploads, ${guestLinks} guest links`
       );
     }
   } catch (error) {

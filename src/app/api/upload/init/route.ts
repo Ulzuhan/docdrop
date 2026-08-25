@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MAX_FILE_SIZE, withQuota } from "@/lib/store";
+import { MAX_FILE_SIZE, clampTtlHours, withQuota } from "@/lib/store";
 import { CHUNK_SIZE, createSession } from "@/lib/upload-session";
-import { requireSession } from "@/lib/auth";
+import {
+  MAX_GUEST_FILE_TTL_HOURS,
+  guestFromRequest,
+  recordGuestUpload,
+  requireUploadAccess,
+} from "@/lib/guest";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
@@ -14,8 +19,12 @@ import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
  * of chunk requests, and counting them all would burn through the quota instantly.
  */
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireSession();
+  const unauthorized = await requireUploadAccess(request);
   if (unauthorized) return unauthorized;
+
+  // Resolved once and reused: the guest link (when there is one) also decides
+  // the TTL ceiling and the default uploader label below.
+  const guest = await guestFromRequest(request);
 
   const limit = rateLimit(`upload-init:${clientIp(request)}`, 30, 60 * 60 * 1000);
   if (!limit.allowed) return tooManyRequests(limit);
@@ -50,14 +59,23 @@ export async function POST(request: NextRequest) {
   // The quota is checked up front — no point letting half a film upload only to be
   // rejected at the end — and the space is reserved under the same lock as the
   // check, so two uploads starting at once cannot both claim the last free gigabyte.
+  // A guest's files expire sooner (MAX_GUEST_FILE_TTL_HOURS): the cap is enforced
+  // here rather than trusted to the guest page, because the API is reachable with
+  // the bare token. The label of the link doubles as the uploader name when the
+  // guest did not give one, so the listing shows whom the file came from.
+  const ttlHours = guest
+    ? Math.min(clampTtlHours(body.ttlHours), MAX_GUEST_FILE_TTL_HOURS)
+    : body.ttlHours;
+  const uploadedBy = body.uploadedBy ?? (guest ? guest.label : undefined);
+
   const session = await withQuota(size, () =>
     createSession({
       filename,
       size,
       mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
-      ttlHours: body.ttlHours,
+      ttlHours,
       maxDownloads: body.maxDownloads,
-      uploadedBy: body.uploadedBy,
+      uploadedBy,
     })
   );
 
@@ -67,6 +85,8 @@ export async function POST(request: NextRequest) {
       { status: 507 }
     );
   }
+
+  if (guest) await recordGuestUpload(guest.token);
 
   return NextResponse.json({
     uploadId: session.id,

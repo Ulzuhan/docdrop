@@ -90,7 +90,8 @@ function putPart(
   blob: Blob,
   signal: AbortSignal,
   onBytes: (bytes: number) => void,
-  checksum: string | null
+  checksum: string | null,
+  headers?: Record<string, string>
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -130,6 +131,9 @@ function putPart(
     xhr.open("PUT", `/api/upload/${uploadId}/part/${index}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     if (checksum) xhr.setRequestHeader("X-Chunk-Sha256", checksum);
+    for (const [name, value] of Object.entries(headers ?? {})) {
+      xhr.setRequestHeader(name, value);
+    }
     xhr.send(blob);
   });
 }
@@ -144,6 +148,8 @@ export interface UploadOptions {
   concurrency?: number;
   /** Retries per chunk before giving up. */
   retries?: number;
+  /** Extra headers on every request — how a guest link authenticates. */
+  headers?: Record<string, string>;
 }
 
 export function uploadFileInChunks(file: File, options: UploadOptions): UploadHandle {
@@ -159,7 +165,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
 
     // ── Resume if there is a previous upload of the same file ───────
     if (uploadId) {
-      const res = await fetch(`/api/upload/${uploadId}`);
+      const res = await fetch(`/api/upload/${uploadId}`, { headers: options.headers });
       if (res.ok) {
         const state = await res.json();
         chunkSize = state.chunkSize;
@@ -176,7 +182,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
     if (!uploadId) {
       const res = await fetch("/api/upload/init", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...options.headers },
         body: JSON.stringify({
           filename: file.name,
           size: file.size,
@@ -220,7 +226,7 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
         let attempt = 0;
         for (;;) {
           try {
-            await putPart(uploadId!, index, blob, controller.signal, report, checksum);
+            await putPart(uploadId!, index, blob, controller.signal, report, checksum, options.headers);
             break;
           } catch (error) {
             const message = error instanceof Error ? error.message : "";
@@ -236,7 +242,10 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
     await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, pending.length)) }, worker));
 
     // ── Finish ──────────────────────────────────────────────────────
-    const res = await fetch(`/api/upload/${uploadId}/complete`, { method: "POST" });
+    const res = await fetch(`/api/upload/${uploadId}/complete`, {
+      method: "POST",
+      headers: options.headers,
+    });
     if (res.status === 401) throw new Error("UNAUTHORIZED");
     const result = (await jsonOrThrow(res, "Could not complete the upload")) as unknown as UploadResult;
 
