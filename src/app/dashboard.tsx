@@ -287,12 +287,8 @@ Tap to choose files
             </button>
           </div>
 
-          {/* On phones each setting is its own row — label left, control right —
-              because the old inline strip (label, four buttons, label, four
-              buttons) wrapped at arbitrary points and looked broken. From lg up
-              everything fits on one line again. */}
-          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
+          <div className="mt-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <Button
                 variant="ghost"
                 size="sm"
@@ -305,19 +301,30 @@ Tap to choose files
               {/* Without a password everything is open and a guest link grants
                   nothing a stranger does not already have. */}
               {authEnabled && <GuestLinksDialog />}
-              <UploaderNameField />
+              <div className="sm:ms-auto">
+                <UploaderNameField />
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-center sm:gap-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground">
+            {/* Label above control, one grid column each. These used to sit
+                inline — label, four buttons, label, four buttons — which needs
+                more width than the page has: on a phone the last option fell off
+                the screen and on a desktop the two groups drew on top of each
+                other. Filling the column instead means the control can never be
+                wider than the space it has, at any viewport. */}
+            <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+              <div>
+                <span
+                  id="downloads-label"
+                  className="flex items-center gap-1.5 text-sm text-muted-foreground"
+                >
                   <Download className="size-3.5" aria-hidden />
                   Downloads
                 </span>
                 <div
                   role="radiogroup"
-                  aria-label="Maximum number of downloads"
-                  className="grid shrink-0 grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1"
+                  aria-labelledby="downloads-label"
+                  className="mt-1.5 grid grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1"
                 >
                   {DOWNLOAD_OPTIONS.map((option) => (
                     <button
@@ -328,7 +335,7 @@ Tap to choose files
                         option.value === 0 ? "No limit" : `${option.value} downloads`
                       }
                       onClick={() => setMaxDownloads(option.value)}
-                      className={`rounded-lg px-3 py-2 text-sm font-medium transition-all sm:py-1.5 ${
+                      className={`rounded-lg px-2 py-2 text-sm font-medium transition-all ${
                         maxDownloads === option.value
                           ? "bg-background text-foreground shadow-sm ring-1 ring-border"
                           : "text-muted-foreground hover:text-foreground"
@@ -340,15 +347,18 @@ Tap to choose files
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground">
+              <div>
+                <span
+                  id="ttl-label"
+                  className="flex items-center gap-1.5 text-sm text-muted-foreground"
+                >
                   <Flame className="size-3.5" aria-hidden />
                   Expires in
                 </span>
                 <div
                   role="radiogroup"
-                  aria-label="Time until self-destruction"
-                  className="grid shrink-0 grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1"
+                  aria-labelledby="ttl-label"
+                  className="mt-1.5 grid grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1"
                 >
                   {TTL_OPTIONS.map((option) => (
                     <button
@@ -356,7 +366,7 @@ Tap to choose files
                       role="radio"
                       aria-checked={ttl === option.hours}
                       onClick={() => setTtl(option.hours)}
-                      className={`rounded-lg px-3 py-2 text-sm font-medium transition-all sm:py-1.5 ${
+                      className={`rounded-lg px-2 py-2 text-sm font-medium transition-all ${
                         ttl === option.hours
                           ? "bg-background text-foreground shadow-sm ring-1 ring-border"
                           : "text-muted-foreground hover:text-foreground"

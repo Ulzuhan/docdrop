@@ -165,10 +165,15 @@ function GuestLinksPanel() {
           />
         </div>
 
-        <div className="flex items-end justify-between gap-3">
+        {/* Selector and button stacked, each full width: sharing a row wrapped
+            "1 day" and "3 days" onto two lines inside their own buttons. */}
+        <div className="space-y-2">
+          <span id="guest-ttl-label" className="text-sm text-muted-foreground">
+            Link lifetime
+          </span>
           <div
             role="radiogroup"
-            aria-label="Link lifetime"
+            aria-labelledby="guest-ttl-label"
             className="grid grid-cols-4 gap-1.5 rounded-xl bg-muted/60 p-1"
           >
             {TTL_OPTIONS.map((option) => (
@@ -178,7 +183,7 @@ function GuestLinksPanel() {
                 role="radio"
                 aria-checked={ttl === option.hours}
                 onClick={() => setTtl(option.hours)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
+                className={`rounded-lg px-2 py-2 text-sm font-medium transition-all ${
                   ttl === option.hours
                     ? "bg-background text-foreground shadow-sm ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground"
@@ -188,12 +193,12 @@ function GuestLinksPanel() {
               </button>
             ))}
           </div>
-
-          <Button type="submit" disabled={creating} className="h-9">
-            {creating && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            Create
-          </Button>
         </div>
+
+        <Button type="submit" disabled={creating} className="h-10 w-full">
+          {creating && <Loader2 className="size-4 animate-spin" aria-hidden />}
+          Create link
+        </Button>
       </form>
 
       <div className="mt-2">
