@@ -1,52 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  SESSION_COOKIE,
-  createSessionToken,
-  isConfigured,
-  sessionCookieOptions,
-  verifyPassword,
-} from "@/lib/auth";
-import { clientIp, rateLimit, resetLimit, tooManyRequests } from "@/lib/ratelimit";
+import { authorizeUrl, challengeFor, newVerifier, oidcConfig } from "@/lib/oidc";
 
-// Brute force: 5 attempts per IP every 15 minutes.
-const MAX_ATTEMPTS = 5;
-const WINDOW_MS = 15 * 60 * 1000;
+/**
+ * GET /api/auth/login — starts signing in against Authentik.
+ *
+ * The PKCE verifier, the anti-CSRF state and where to return to are kept in a
+ * short-lived cookie. A cookie rather than server state because there is no
+ * session yet: this happens before we know who is asking.
+ */
+export const dynamic = "force-dynamic";
 
-export async function POST(request: NextRequest) {
-  if (!isConfigured()) {
-    // No password configured means no way in: fail closed, never open.
+export async function GET(request: NextRequest) {
+  const cfg = oidcConfig();
+  if (!cfg) {
     return NextResponse.json(
-      { error: "Server not configured. Set DOCDROP_PASSWORD_HASH and DOCDROP_SESSION_SECRET." },
+      { error: "Sign-in is not configured on this instance" },
       { status: 503 }
     );
   }
 
-  const key = `login:${clientIp(request)}`;
-  const limit = rateLimit(key, MAX_ATTEMPTS, WINDOW_MS);
-  if (!limit.allowed) return tooManyRequests(limit);
+  const verifier = newVerifier();
+  const state = newVerifier();
 
-  let password: unknown;
-  try {
-    ({ password } = await request.json());
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  // Internal paths only: without this, a link carrying ?next=https://elsewhere
+  // would turn signing in into a redirector to wherever an attacker wanted.
+  const raw = request.nextUrl.searchParams.get("next") ?? "/";
+  const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
 
-  if (typeof password !== "string" || password.length === 0 || password.length > 512) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-  }
-
-  if (!verifyPassword(password)) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-  }
-
-  const token = createSessionToken();
-  if (!token) {
-    return NextResponse.json({ error: "Server not configured" }, { status: 503 });
-  }
-
-  resetLimit(key);
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions);
+  const response = NextResponse.redirect(
+    authorizeUrl(cfg, { state, codeChallenge: challengeFor(verifier) })
+  );
+  response.cookies.set("docdrop_oidc", JSON.stringify({ verifier, state, next }), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    // "strict" would not survive the trip back from Authentik: the browser
+    // treats it as a cross-site navigation and would withhold the cookie.
+    sameSite: "lax",
+    path: "/",
+    maxAge: 10 * 60,
+  });
   return response;
 }

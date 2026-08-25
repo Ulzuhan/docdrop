@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { MAX_TOTAL_BYTES, isAvailable, listMeta, usedBytes } from "@/lib/store";
-import { authRequired, requireSession } from "@/lib/auth";
+import { requireSession } from "@/lib/auth";
 
 /**
  * GET /api/files — active files, newest first.
@@ -22,7 +22,7 @@ export async function GET() {
   return NextResponse.json({
     files,
     storage: { usedBytes: await usedBytes(), totalBytes: MAX_TOTAL_BYTES },
-    // So the dashboard knows whether to offer a "log out" button.
-    authEnabled: authRequired(),
+    // Kept so the dashboard keeps offering its "log out" button.
+    authEnabled: true,
   });
 }

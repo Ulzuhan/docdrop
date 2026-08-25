@@ -1,84 +1,55 @@
 /**
- * DocDrop — dashboard authentication.
+ * DocDrop — sessions, on top of identities that live in Authentik.
  *
- * Access model (designed for a service that may be exposed to the internet):
+ * Access model:
  *
  *   PUBLIC         /d/[id], /api/info/[id], /api/download/[id]
  *                  The 72-bit link id is the secret. Lets you share a file with
- *                  someone without handing out credentials.
+ *                  someone without handing out an account.
  *
- *   AUTHENTICATED  /, /api/upload, /api/files, /api/cleanup
- *                  Uploading, listing everything and purging require the password.
+ *   GUEST          /guest/[token] and uploading with that token
+ *                  For people outside the group who need to send something in.
+ *                  See lib/guest.ts.
  *
- * The session is a signed cookie (HMAC-SHA256) with no server-side state: changing
- * DOCDROP_SESSION_SECRET revokes everything.
+ *   SIGNED IN      /, /api/upload, /api/files, /api/cleanup
+ *                  Uploading, listing everything and purging need an account.
  *
- * Authorisation is enforced by requireSession() inside each route, as Next's own
- * documentation recommends — never by a proxy/middleware check alone.
+ * The shared password is gone: who may sign in is decided by Authentik, which
+ * only issues tokens for people in this application's group. Asking for an
+ * account and being let in happens there, once, for every service.
+ *
+ * The session is still a signed cookie (HMAC-SHA256) with no server-side
+ * state, but it now names a user. Changing DOCDROP_SESSION_SECRET still
+ * revokes every session at once; deleting somebody's account revokes theirs.
+ *
+ * Authorisation is enforced by requireSession() inside each route, as Next's
+ * own documentation recommends — never by a proxy/middleware check alone.
  */
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
+import { findById, upsertFromIdentity, type DocDropUser } from "@/lib/users";
+import { oidcConfigured, type OidcIdentity } from "@/lib/oidc";
 
 export const SESSION_COOKIE = "docdrop_session";
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-// ─── Configuration ──────────────────────────────────────────────────
-/**
- * DOCDROP_PASSWORD_HASH format: `scrypt$<salt_hex>$<hash_hex>`.
- * Generated with `npm run set-password`.
- */
-function passwordHash(): string | null {
-  return process.env.DOCDROP_PASSWORD_HASH?.trim() || null;
-}
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function sessionSecret(): string | null {
   return process.env.DOCDROP_SESSION_SECRET?.trim() || null;
 }
 
 /**
- * The password is OPTIONAL and acts as a switch:
- *
- *   without DOCDROP_PASSWORD_HASH  → open service (private network, or behind a
- *                                    temporary tunnel opened and closed by hand)
- *   with DOCDROP_PASSWORD_HASH     → uploading, listing and purging need the password
- *
- * To enable it: `npm run set-password`, paste the two lines into the environment
- * file and restart. No code changes needed.
+ * Whether this instance can authenticate anybody at all. Without the OIDC
+ * client or the signing secret there is no way in — and, unlike the old
+ * password mode, no way to fall back to an open service either: an upload
+ * endpoint reachable by anyone is free anonymous hosting.
  */
 export function isConfigured(): boolean {
-  return Boolean(passwordHash() && sessionSecret());
+  return Boolean(sessionSecret() && oidcConfigured());
 }
 
-/** True if dashboard operations require a session. */
+/** Kept for the callers that only want to know whether to show a log-out button. */
 export function authRequired(): boolean {
-  return isConfigured();
-}
-
-// ─── Password ───────────────────────────────────────────────────────
-export function hashPassword(password: string, salt = randomBytes(16).toString("hex")): string {
-  const derived = scryptSync(password.normalize("NFKC"), salt, 64).toString("hex");
-  return `scrypt$${salt}$${derived}`;
-}
-
-export function verifyPassword(password: string): boolean {
-  const stored = passwordHash();
-  if (!stored) return false;
-
-  const [scheme, salt, expected] = stored.split("$");
-  if (scheme !== "scrypt" || !salt || !expected) return false;
-
-  let derived: Buffer;
-  try {
-    derived = scryptSync(password.normalize("NFKC"), salt, 64);
-  } catch {
-    return false;
-  }
-
-  const expectedBuf = Buffer.from(expected, "hex");
-  // Constant-time comparison: a normal one leaks the password byte by byte
-  // through the response time.
-  if (derived.length !== expectedBuf.length) return false;
-  return timingSafeEqual(derived, expectedBuf);
+  return true;
 }
 
 // ─── Cookie signing ─────────────────────────────────────────────────
@@ -86,21 +57,22 @@ function sign(payload: string, secret: string): string {
   return createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
-export function createSessionToken(): string | null {
+export function createSessionToken(userId: string): string | null {
   const secret = sessionSecret();
   if (!secret) return null;
   const payload = Buffer.from(
-    JSON.stringify({ exp: Date.now() + SESSION_TTL_MS })
+    JSON.stringify({ uid: userId, exp: Date.now() + SESSION_TTL_MS })
   ).toString("base64url");
   return `${payload}.${sign(payload, secret)}`;
 }
 
-export function verifySessionToken(token: string | undefined): boolean {
+/** The user id inside a cookie, or null if it is forged, stale or malformed. */
+export function userIdFromToken(token: string | undefined): string | null {
   const secret = sessionSecret();
-  if (!secret || !token) return false;
+  if (!secret || !token) return null;
 
   const dot = token.lastIndexOf(".");
-  if (dot <= 0) return false;
+  if (dot <= 0) return null;
 
   const payload = token.slice(0, dot);
   const provided = token.slice(dot + 1);
@@ -108,31 +80,15 @@ export function verifySessionToken(token: string | undefined): boolean {
 
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
   try {
-    const { exp } = JSON.parse(Buffer.from(payload, "base64url").toString());
-    return typeof exp === "number" && exp > Date.now();
+    const { uid, exp } = JSON.parse(Buffer.from(payload, "base64url").toString());
+    if (typeof exp !== "number" || exp <= Date.now()) return null;
+    return typeof uid === "string" ? uid : null;
   } catch {
-    return false;
+    return null;
   }
-}
-
-// ─── Used from routes and pages ─────────────────────────────────────
-export async function hasSession(): Promise<boolean> {
-  if (!authRequired()) return true;
-  const store = await cookies();
-  return verifySessionToken(store.get(SESSION_COOKIE)?.value);
-}
-
-/**
- * Returns null if the request may proceed, or the 401 response to send back.
- * With no password configured it always lets the request through.
- */
-export async function requireSession(): Promise<Response | null> {
-  if (!authRequired()) return null;
-  if (await hasSession()) return null;
-  return Response.json({ error: "Unauthorized" }, { status: 401 });
 }
 
 export const sessionCookieOptions = {
@@ -144,3 +100,41 @@ export const sessionCookieOptions = {
   path: "/",
   maxAge: Math.floor(SESSION_TTL_MS / 1000),
 };
+
+// ─── Used from routes and pages ─────────────────────────────────────
+/** The person behind this request, or null. */
+export async function currentUser(): Promise<DocDropUser | null> {
+  const store = await cookies();
+  const userId = userIdFromToken(store.get(SESSION_COOKIE)?.value);
+  if (!userId) return null;
+  // Looked up rather than trusted from the cookie: an account that was removed
+  // should not keep working until its cookie expires.
+  return findById(userId);
+}
+
+export async function hasSession(): Promise<boolean> {
+  return (await currentUser()) !== null;
+}
+
+/**
+ * Returns null if the request may proceed, or the 401 response to send back.
+ */
+export async function requireSession(): Promise<Response | null> {
+  if (await hasSession()) return null;
+  return Response.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+export async function startSession(identity: OidcIdentity): Promise<DocDropUser> {
+  const user = await upsertFromIdentity(identity);
+  const token = createSessionToken(user.id);
+  if (!token) throw new Error("DOCDROP_SESSION_SECRET is not set");
+
+  const store = await cookies();
+  store.set(SESSION_COOKIE, token, sessionCookieOptions);
+  return user;
+}
+
+export async function endSession(): Promise<void> {
+  const store = await cookies();
+  store.delete(SESSION_COOKIE);
+}

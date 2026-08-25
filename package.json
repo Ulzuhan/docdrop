@@ -29,7 +29,6 @@
     "build": "next build",
     "start": "node scripts/start.js",
     "lint": "eslint",
-    "set-password": "node scripts/set-password.mjs",
     "postbuild": "node scripts/prepare-standalone.js",
     "test:upload": "node scripts/test-upload.mjs"
   },

@@ -7,6 +7,8 @@ import {
   recordGuestUpload,
   requireUploadAccess,
 } from "@/lib/guest";
+import { currentUser } from "@/lib/auth";
+import { displayName } from "@/lib/users";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
@@ -66,7 +68,13 @@ export async function POST(request: NextRequest) {
   const ttlHours = guest
     ? Math.min(clampTtlHours(body.ttlHours), MAX_GUEST_FILE_TTL_HOURS)
     : body.ttlHours;
-  const uploadedBy = body.uploadedBy ?? (guest ? guest.label : undefined);
+  // Somebody with an account is labelled with it; a guest, with the label of
+  // their link. The name sent by the client is only honoured when there is no
+  // account behind the upload, because then it is all there is.
+  const account = guest ? null : await currentUser();
+  const uploadedBy = account
+    ? displayName(account)
+    : (body.uploadedBy ?? (guest ? guest.label : undefined));
 
   const session = await withQuota(size, () =>
     createSession({

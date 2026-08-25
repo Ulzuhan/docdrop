@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
-import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth";
+import { endSession } from "@/lib/auth";
 
+/**
+ * POST /api/auth/logout — ends the session for THIS application.
+ *
+ * It deliberately does not sign you out of Authentik: somebody leaving DocDrop
+ * does not expect to be thrown out of the other services open in their other
+ * tabs. To leave everything, sign out in Authentik itself.
+ */
 export async function POST() {
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set(SESSION_COOKIE, "", { ...sessionCookieOptions, maxAge: 0 });
-  return response;
+  await endSession();
+  return NextResponse.json({ ok: true });
 }

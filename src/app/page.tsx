@@ -1,22 +1,20 @@
-import { redirect } from "next/navigation";
-import { hasSession } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 import { Dashboard } from "./dashboard";
+import { Landing } from "@/components/landing";
 
 /**
- * Server gate for the dashboard. Without it the client page painted the whole
- * upload UI, asked /api/files, got the 401 and only then bounced to /login — an
- * ugly flash of a screen the visitor was never going to keep.
+ * The front door, decided on the server: a stranger gets the landing page and
+ * somebody signed in goes straight to their files. It used to redirect to a
+ * login form, which for a stranger is a closed door with no explanation of
+ * what is behind it.
  *
- * This is presentation, not enforcement: every API route still checks the
- * session itself (see lib/auth.ts). With no password configured hasSession()
- * is always true and the service stays open, as before.
+ * force-dynamic because this reads the session cookie: prerendering would bake
+ * one of the two answers into a static page.
  */
-// Without this the page prerenders at build time, where the credentials env is
-// not loaded: authRequired() answers false, the open branch gets baked into the
-// static page and the gate never runs. The check must happen per request.
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  if (!(await hasSession())) redirect("/login");
+  const user = await currentUser();
+  if (!user) return <Landing />;
   return <Dashboard />;
 }

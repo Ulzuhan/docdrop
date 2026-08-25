@@ -25,6 +25,8 @@ import {
   recordGuestUpload,
   requireUploadAccess,
 } from "@/lib/guest";
+import { currentUser } from "@/lib/auth";
+import { displayName } from "@/lib/users";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
@@ -48,6 +50,7 @@ export async function POST(request: NextRequest) {
   if (unauthorized) return unauthorized;
 
   const guest = await guestFromRequest(request);
+  const account = guest ? null : await currentUser();
 
   const limit = rateLimit(`upload:${clientIp(request)}`, 30, 60 * 60 * 1000);
   if (!limit.allowed) return tooManyRequests(limit);
@@ -141,12 +144,13 @@ export async function POST(request: NextRequest) {
       expiresAt: now + ttlHours * 60 * 60 * 1000,
       downloadCount: 0,
       maxDownloads,
-      uploadedBy:
-        sanitizeUploader(
-          request.headers.get("x-uploaded-by")
-            ? decodeURIComponent(request.headers.get("x-uploaded-by")!)
-            : undefined
-        ) ?? guest?.label,
+      uploadedBy: account
+        ? displayName(account)
+        : sanitizeUploader(
+            request.headers.get("x-uploaded-by")
+              ? decodeURIComponent(request.headers.get("x-uploaded-by")!)
+              : undefined
+          ) ?? guest?.label,
     };
     await writeMeta(meta);
     if (guest) await recordGuestUpload(guest.token);
