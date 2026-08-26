@@ -50,6 +50,9 @@ export function Landing() {
               <p className="mt-3 text-xs text-muted-foreground">
                 Got a guest link instead? Open it — it works without an account.
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Already have a KaiCorp Labs account? Use the same button — it asks for access to this one.
+              </p>
             </div>
 
             <DemoCard />
