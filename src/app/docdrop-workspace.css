@@ -28,7 +28,13 @@
 .dd-files > ul { display: grid; gap: .65rem; }
 @media (min-width: 70rem) { .dd-files > ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dd-file-row > div:first-child { min-height: 5.5rem; } }
 @media (max-width: 50rem) { .dd-upload-workbench { grid-template-columns: 1fr; } .dd-dropzone { min-height: 17rem; } .dd-upload-queue { grid-column: 1; } }
-@media (max-width: 39.99rem) { .dd-workspace-header { text-align: left; } .dd-upload-settings { padding: 1rem; } .dd-upload-items { grid-template-columns: 1fr; } .dd-file-row > div:first-child { flex-wrap: wrap; } .dd-file-row > div:first-child > div:last-child { width: 100%; justify-content: flex-end; } }
+/* Aquí había un `.dd-workspace-header { text-align: left }` que contradecía el
+   `text-center` del marcado solo por debajo de 640px. Fuera: la tarjeta que va
+   justo debajo tiene su contenido centrado, así que la izquierda era la
+   discontinuidad, no el remedio. Medidos los cortes de línea de 320 a 639px,
+   salen casi simétricos —180/188px el titular, 184/181px el subtítulo— y desde
+   414px entra en una sola línea. Ninguna línea huérfana en ningún ancho. */
+@media (max-width: 39.99rem) { .dd-upload-settings { padding: 1rem; } .dd-upload-items { grid-template-columns: 1fr; } .dd-file-row > div:first-child { flex-wrap: wrap; } .dd-file-row > div:first-child > div:last-child { width: 100%; justify-content: flex-end; } }
 /* Por debajo de 23rem de tarjeta las cuatro opciones ya no caben con el relleno
    de siempre. Se aprieta el relleno antes que encoger la letra: lo que hay que
    poder hacer con el dedo es acertar en el botón, y su altura no se toca. */
