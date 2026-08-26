@@ -2,6 +2,7 @@ import { KaiCorpFooter } from "@/components/kaicorp-footer";
 import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { headers } from "next/headers";
 import { ServiceWorkerRegistration } from "@/components/service-worker";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -29,11 +30,15 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // El nonce de esta petición, puesto por src/proxy.ts. Se lo lleva next-themes,
+  // cuyo script anti-parpadeo es el único en línea que Next no marca solo.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="en"
@@ -41,7 +46,7 @@ export default function RootLayout({
       className={`${display.variable} ${sans.variable} ${mono.variable}`}
     >
       <body className="min-h-dvh flex flex-col">
-        <ThemeProvider>
+        <ThemeProvider nonce={nonce}>
           {children}
           <KaiCorpFooter current="docdrop" />
           <Toaster position="top-center" richColors closeButton />
