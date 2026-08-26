@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { HardDrive } from "lucide-react";
+import { KaiCorpHeader } from "@/components/kaicorp-header";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Progress } from "@/components/ui/progress";
 import { formatBytes } from "@/lib/format";
@@ -11,27 +11,24 @@ interface Props {
   actions?: React.ReactNode;
 }
 
+/**
+ * La cabecera de DocDrop: la común de KaiCorp Labs con lo propio de esta app
+ * colgando a la derecha.
+ *
+ * Se conserva este envoltorio en vez de usar `KaiCorpHeader` directamente en
+ * cada página porque las cuatro pantallas que la pintan pasan cosas distintas
+ * (el panel manda el medidor de disco, la de invitado no manda nada) y no tiene
+ * sentido repetir cuatro veces el mismo montaje.
+ */
 export function SiteHeader({ storage, actions }: Props) {
   const pct = storage ? Math.min(100, (storage.usedBytes / storage.totalBytes) * 100) : 0;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:h-16 sm:px-6">
-        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-          <span
-            aria-hidden
-            className="grid size-8 place-items-center rounded-lg bg-primary/12 text-base ring-1 ring-primary/25"
-          >
-            📄
-          </span>
-          <span className="text-[15px] sm:text-base">
-            <span className="text-primary">Doc</span>Drop
-          </span>
-        </Link>
-
-        {/* The storage indicator only fits comfortably from sm upwards. */}
+    <>
+      <KaiCorpHeader app="DocDrop">
+        {/* El medidor solo cabe con holgura de sm en adelante. */}
         {storage && (
-          <div className="ml-auto hidden items-center gap-2 sm:flex">
+          <div className="hidden items-center gap-2 sm:flex">
             <HardDrive className="size-3.5 text-muted-foreground" aria-hidden />
             <div className="w-24">
               <Progress value={pct} className="h-1.5" />
@@ -41,22 +38,22 @@ export function SiteHeader({ storage, actions }: Props) {
             </span>
           </div>
         )}
+        {actions}
+        <ThemeToggle />
+      </KaiCorpHeader>
 
-        <div className={`flex items-center gap-1 ${storage ? "sm:ml-0" : ""} ml-auto`}>
-          {actions}
-          <ThemeToggle />
-        </div>
-      </div>
-
-      {/* On mobile, disk usage moves to a thin line under the header. */}
+      {/* En móvil el disco baja a una línea fina bajo la cabecera. */}
       {storage && (
-        <div className="flex items-center gap-2 px-4 pb-2 sm:hidden">
+        <div
+          className="flex items-center gap-2 border-b px-4 pb-2 pt-2 sm:hidden"
+          style={{ borderColor: "var(--kc-line)" }}
+        >
           <Progress value={pct} className="h-1" />
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
             {formatBytes(storage.usedBytes)} / {formatBytes(storage.totalBytes)}
           </span>
         </div>
       )}
-    </header>
+    </>
   );
 }

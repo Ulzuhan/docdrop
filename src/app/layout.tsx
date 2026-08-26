@@ -1,20 +1,14 @@
 import { KaiCorpFooter } from "@/components/kaicorp-footer";
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Space_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ServiceWorkerRegistration } from "@/components/service-worker";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const display = Space_Grotesk({ variable: "--font-display", weight: ["500", "700"], subsets: ["latin"] });
+const sans = Inter({ variable: "--font-sans", weight: ["400", "500"], subsets: ["latin"] });
+const mono = JetBrains_Mono({ variable: "--font-mono", weight: ["400", "500"], subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "DocDrop — Share files instantly",
@@ -44,12 +38,12 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable}`}
+      className={`${display.variable} ${sans.variable} ${mono.variable}`}
     >
       <body className="min-h-dvh flex flex-col">
         <ThemeProvider>
           {children}
-        <KaiCorpFooter />
+          <KaiCorpFooter current="docdrop" />
           <Toaster position="top-center" richColors closeButton />
           <ServiceWorkerRegistration />
         </ThemeProvider>
