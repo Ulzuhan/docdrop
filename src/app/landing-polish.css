@@ -191,7 +191,12 @@
    rompe cualquier `position: sticky` que cuelgue dentro. */
 .kc-workspace { --kc-product-accent: var(--primary, var(--accent)); position: relative; isolation: isolate; overflow: clip; }
 .kc-workspace::before { content: ""; position: absolute; z-index: -1; inset: -6rem -18vw auto; height: 30rem; pointer-events: none; background: radial-gradient(50% 70% at 50% 0%, color-mix(in oklch, var(--kc-product-accent) 10%, transparent), transparent 74%); }
-.kc-workspace h1 { font-size: clamp(2rem, 4vw, 3.25rem); line-height: 1; letter-spacing: -0.045em; }
+/* `5vw` y no `4vw`: con 4vw el mínimo de 2rem se aplicaba hasta los 800 px,
+   y el override de móvil de más abajo daba 44 px a 639 px de ancho. O sea que
+   al ENSANCHAR la ventana de 639 a 640 el titular ENCOGÍA de 44 a 32 px. Eso
+   es lo que se veía como "al hacer zoom se rompe": no se rompía nada, saltaba
+   de escalón. Con 5vw la curva es continua y el override sobra. */
+.kc-workspace h1 { font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.05; letter-spacing: -0.04em; }
 .kc-workspace h2 { letter-spacing: -0.03em; }
 .kc-workspace :is(input, textarea, select) { border-color: color-mix(in oklch, var(--kc-product-accent) 12%, var(--border, #2a2a3a)); background-color: color-mix(in oklch, var(--card, var(--surface, #15151e)) 82%, transparent); box-shadow: inset 0 1px 0 color-mix(in oklch, white 4%, transparent); }
 .kc-workspace :is(input, textarea, select):focus-visible { border-color: var(--kc-product-accent); box-shadow: 0 0 0 3px color-mix(in oklch, var(--kc-product-accent) 15%, transparent); }
@@ -205,5 +210,4 @@
 .kc-workspace tbody tr:hover { background: color-mix(in oklch, var(--kc-product-accent) 5%, transparent); }
 .kc-workspace ::selection { color: var(--foreground, white); background: color-mix(in oklch, var(--kc-product-accent) 35%, transparent); }
 @media (min-width: 48rem) { .kc-workspace { padding-top: 3.5rem; padding-bottom: 5rem; } }
-@media (max-width: 39.99rem) { .kc-workspace h1 { font-size: clamp(2rem, 10vw, 2.75rem); } }
 @media (prefers-reduced-motion: reduce) { .kc-workspace *, .kc-workspace *::before, .kc-workspace *::after { transition-duration: 0.01ms !important; } }
