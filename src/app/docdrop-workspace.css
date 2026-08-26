@@ -2,13 +2,20 @@
 .dd-workspace-header { padding-bottom: 1.6rem; border-bottom: 1px solid color-mix(in oklch, var(--primary) 13%, var(--border)); }
 .dd-workspace-header h1 { font-size: clamp(2.4rem, 5vw, 4.3rem); }
 .dd-upload-workbench { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(19rem, .65fr); gap: 1rem; align-items: stretch; }
-.dd-dropzone { min-height: 28rem; display: grid; border-width: 1px; border-style: solid; background: radial-gradient(80% 75% at 50% 50%, color-mix(in oklch, var(--primary) 7%, transparent), transparent 72%), var(--dd-panel); box-shadow: inset 0 1px 0 color-mix(in oklch, white 5%, transparent), 0 24px 70px color-mix(in oklch, black 20%, transparent); }
-.dd-dropzone > button { min-height: 100%; }
+/* 23rem, no 28: el contenido mide 144px, así que a 28rem sobraban 304px de
+   hueco. Y `justify-content` porque sin él el botón apila arriba y todo ese
+   sobrante caía junto al pie de la tarjeta, que es lo que se veía torcido: no
+   molestaba el tamaño, molestaba que el hueco estuviera todo de un lado. */
+.dd-dropzone { min-height: 23rem; display: grid; border-width: 1px; border-style: solid; background: radial-gradient(80% 75% at 50% 50%, color-mix(in oklch, var(--primary) 7%, transparent), transparent 72%), var(--dd-panel); box-shadow: inset 0 1px 0 color-mix(in oklch, white 5%, transparent), 0 24px 70px color-mix(in oklch, black 20%, transparent); }
+.dd-dropzone > button { min-height: 100%; justify-content: center; }
 .dd-dropzone > button > span:first-of-type { width: 4.5rem; height: 4.5rem; box-shadow: 0 14px 40px color-mix(in oklch, var(--primary) 18%, transparent); }
 .dd-upload-settings { margin: 0; padding: 1.25rem; border: 1px solid color-mix(in oklch, var(--primary) 12%, var(--border)); border-radius: 1rem; background: linear-gradient(145deg, color-mix(in oklch, var(--primary) 5%, transparent), transparent 48%), var(--dd-panel); display: flex; flex-direction: column; justify-content: center; }
 .dd-upload-settings > div:first-child { padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
 .dd-upload-settings [role="radiogroup"] { min-height: 3rem; padding: .35rem; }
-.dd-upload-settings [role="radio"] { min-height: 2.35rem; }
+/* `nowrap` es la red: un rótulo puede quedarse sin sitio, pero no puede
+   partirse por la mitad. Si algún día vuelve a faltar espacio se verá salir el
+   texto —evidente, se arregla— en vez de un "3 / days" que pasa por diseño. */
+.dd-upload-settings [role="radio"] { min-height: 2.35rem; white-space: nowrap; }
 .dd-upload-queue { grid-column: 1 / -1; margin-top: 0; padding: 1rem; border: 1px solid color-mix(in oklch, var(--primary) 12%, var(--border)); border-radius: 1rem; background: var(--dd-panel); }
 .dd-upload-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
 .dd-upload-items > li { margin: 0; }
@@ -20,6 +27,10 @@
 .dd-file-row [class*="rounded-full"] { overflow: hidden; }
 .dd-files > ul { display: grid; gap: .65rem; }
 @media (min-width: 70rem) { .dd-files > ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dd-file-row > div:first-child { min-height: 5.5rem; } }
-@media (max-width: 50rem) { .dd-upload-workbench { grid-template-columns: 1fr; } .dd-dropzone { min-height: 20rem; } .dd-upload-queue { grid-column: 1; } }
+@media (max-width: 50rem) { .dd-upload-workbench { grid-template-columns: 1fr; } .dd-dropzone { min-height: 17rem; } .dd-upload-queue { grid-column: 1; } }
 @media (max-width: 39.99rem) { .dd-workspace-header { text-align: left; } .dd-upload-settings { padding: 1rem; } .dd-upload-items { grid-template-columns: 1fr; } .dd-file-row > div:first-child { flex-wrap: wrap; } .dd-file-row > div:first-child > div:last-child { width: 100%; justify-content: flex-end; } }
+/* Por debajo de 23rem de tarjeta las cuatro opciones ya no caben con el relleno
+   de siempre. Se aprieta el relleno antes que encoger la letra: lo que hay que
+   poder hacer con el dedo es acertar en el botón, y su altura no se toca. */
+@media (max-width: 22.5rem) { .dd-upload-settings [role="radiogroup"] { gap: .25rem; } .dd-upload-settings [role="radio"] { padding-inline: .25rem; font-size: .8125rem; } }
 @media (prefers-reduced-motion: reduce) { .dd-file-row { transition: none; } }

@@ -309,13 +309,21 @@ Tap to choose files
               </div>
             </div>
 
-            {/* Label above control, one grid column each. These used to sit
-                inline — label, four buttons, label, four buttons — which needs
-                more width than the page has: on a phone the last option fell off
-                the screen and on a desktop the two groups drew on top of each
-                other. Filling the column instead means the control can never be
-                wider than the space it has, at any viewport. */}
-            <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+            {/* Label above control, one group per row. These used to sit inline
+                — label, four buttons, label, four buttons — which needs more
+                width than the page has: on a phone the last option fell off the
+                screen and on a desktop the two groups drew on top of each other.
+
+                They then sat side by side from `sm` up, which was worse in a way
+                that hid itself: `sm` asks about the viewport, but what limits
+                these controls is the settings card, and from 50rem up the card
+                stops being the full page and becomes the 19rem right-hand
+                column. So the wider the window, the narrower each option — 74px
+                on a phone, 23px on a desktop — and every label under six
+                characters broke in half ("3 / days"). One group per row is the
+                only arrangement that holds at every width, and it costs nothing:
+                the card had vertical room to spare. */}
+            <div className="dd-option-groups grid gap-3">
               <div>
                 <span
                   id="downloads-label"
