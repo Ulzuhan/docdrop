@@ -67,7 +67,18 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # Solo amd64. Construir arm64 aquí significa hacerlo bajo QEMU, y un
+          # build de Next.js emulado tarda horas en vez de minutos: las
+          # ejecuciones anteriores parecían rápidas solo porque la caché de
+          # GitHub las salvaba, y en cuanto cambió el código se quedaron
+          # colgadas. Nadie usa la imagen arm64 — el servidor donde esto corre
+          # es x86_64.
+          #
+          # Si algún día hiciera falta, la forma correcta NO es volver a QEMU:
+          # es un `matrix` con `ubuntu-24.04-arm` (gratis en repos públicos)
+          # construyendo cada arquitectura en su propia máquina y uniendo los
+          # digests en un manifiesto.
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
