@@ -60,12 +60,8 @@ cloudflared as a second service in Compose so it reaches DocDrop over the intern
 network and **nothing is published on the host at all**. `compose.yaml` has both
 variants commented in.
 
-To set a password:
-
-```bash
-docker run --rm ghcr.io/ulzuhan/docdrop:latest node scripts/set-password.mjs
-# put the two lines it prints in the container environment and restart
-```
+Sign-in needs an OIDC provider: see [Access model](#access-model) for the variables
+to put in the container environment.
 
 ### From source
 
@@ -131,26 +127,52 @@ For a properly isolated deployment — dedicated user, sandboxed systemd unit �
 
 ## Access model
 
-By default it starts **open**: anyone who reaches the service can upload and see the
-full listing. That suits a private network, or a tunnel that is opened and closed by
-hand — but while that tunnel is up, anyone with the URL has write access.
+**DocDrop needs an identity provider.** There is no password of its own and no open
+mode: uploading, and seeing what is stored, require an account, and who has an account
+is decided by an OIDC provider you point it at. Authentik is what this was built
+against, but nothing here is specific to it — Keycloak, Authelia, Zitadel or any other
+OIDC provider works the same.
 
-Adding a password splits it in two:
+That is a deliberate trade and worth saying out loud: it means you cannot clone this
+and be uploading a minute later. It exists because DocDrop is one of five services
+sharing one set of accounts, and a login form in each of them would have meant getting
+password handling right five times.
 
-| Route | With a password configured |
+| Route | Needs an account |
 |---|---|
-| `/`, `/api/upload*`, `/api/files*`, `/api/cleanup` | Requires a session |
-| `/d/[id]`, `/api/info/[id]`, `/api/download/[id]` | Public (the 72-bit id is the secret) |
+| `/`, `/api/upload*`, `/api/files*`, `/api/guest-links*`, `/api/cleanup` | Yes |
+| `/d/[id]`, `/api/info/[id]`, `/api/download/[id]`, `/api/zip` | No — the 72-bit id is the secret |
+| `/guest/[token]` and uploading through it | No — see below |
 
-That way a file can be shared with someone without handing out credentials.
+Set these and restart:
 
 ```bash
-npm run set-password        # or: npm run set-password 'my password'
-# paste the two lines it prints into the process environment and restart
+DOCDROP_SESSION_SECRET=$(openssl rand -hex 32)   # signs the session cookie
+DOCDROP_OIDC_CLIENT_ID=...
+DOCDROP_OIDC_CLIENT_SECRET=...
+DOCDROP_OIDC_REDIRECT_URI=https://your-host/api/auth/callback
+DOCDROP_OIDC_PUBLIC_BASE=https://your-provider     # where the browser is sent
+DOCDROP_OIDC_INTERNAL_BASE=http://127.0.0.1:9100   # where the server talks to it, if it differs
 ```
 
-The mode it started in is logged on boot (`[docdrop] mode: OPEN` or `PROTECTED`), so
-running open is always a decision rather than the result of a lost config file.
+Without them the service starts and says so on boot — *sign-in NOT configured* — and
+nobody can get in. That is on purpose: a file service that silently accepts uploads
+from anyone who finds the URL is worse than one that refuses to start properly.
+
+The session is a signed cookie (HMAC-SHA256) with no server-side state, so there is no
+session table to grow or clean. An account removed from the provider stops working on
+its next request rather than when its cookie expires: the user is looked up, not
+trusted from the cookie.
+
+### Guest links, for people with no account
+
+Somebody who needs to send you a file should not have to get an account for it. A
+signed-in user creates a guest link with its own expiry and upload limit; whoever holds
+it can upload through `/guest/[token]` and nothing else — no listing, no other files,
+no way to reach the dashboard.
+
+It is how the "somebody outside sends me something" case is covered without loosening
+anything for everyone else.
 
 ---
 
@@ -335,11 +357,13 @@ live server and cleans up after itself.
 | `GET /api/download/[id]?inline=1` | Preview without consuming a download · **public** |
 | `GET /api/zip?ids=a,b,c` | Several files as one archive · **public** |
 | `POST /api/cleanup` | Purges expired, exhausted and abandoned uploads |
-| `POST /api/auth/login` · `/api/auth/logout` | Session, when a password is set |
+| `GET /api/auth/login` · `GET /api/auth/callback` · `POST /api/auth/logout` | Sign-in through the OIDC provider |
+| `POST /api/guest-links` · `GET /api/guest/[token]` | Guest links: create one (needs an account), use one (does not) |
 
 ## Configuration
 
-Everything is environment variables; none is required.
+Everything is environment variables. Only the sign-in ones are required; the rest have
+working defaults.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -349,8 +373,12 @@ Everything is environment variables; none is required.
 | `DOCDROP_MAX_TOTAL_BYTES` | 20 GB | Total storage; keeps the disk from filling |
 | `DOCDROP_CHUNK_BYTES` | 32 MiB | Chunk size |
 | `DOCDROP_REQUEST_TIMEOUT_MS` | 12h | Maximum duration of a request |
-| `DOCDROP_PASSWORD_HASH` | — | Enables the dashboard password |
-| `DOCDROP_SESSION_SECRET` | — | Signs the session cookie |
+| `DOCDROP_SESSION_SECRET` | — | Signs the session cookie. **Required** to sign in |
+| `DOCDROP_OIDC_CLIENT_ID` | — | **Required.** See [Access model](#access-model) |
+| `DOCDROP_OIDC_CLIENT_SECRET` | — | **Required** |
+| `DOCDROP_OIDC_REDIRECT_URI` | — | **Required.** `https://your-host/api/auth/callback` |
+| `DOCDROP_OIDC_PUBLIC_BASE` | — | Where the browser is sent |
+| `DOCDROP_OIDC_INTERNAL_BASE` | — | Where the server talks to the provider, if that differs |
 
 ## Security
 
@@ -371,8 +399,10 @@ that provides no WAF and no filtering of its own.
 - **Uploads are only served inline for types that cannot run scripts** (video, audio,
   images except SVG, PDF). Anything else is forced to `attachment`. Serving arbitrary
   uploads inline from the same origin is what turns a file service into stored XSS.
-- The password is stored only as a **scrypt** hash and compared in constant time; the
-  session is an HMAC-SHA256 signed cookie, `httpOnly` + `secure` + `sameSite`.
+- **No password is stored here at all**: who may sign in is the identity provider's
+  business. The session is an HMAC-SHA256 signed cookie, `httpOnly` + `secure` +
+  `sameSite`, with the user looked up on every request rather than trusted from the
+  cookie — so an account removed at the provider stops working immediately.
 
 ## Maintenance
 
