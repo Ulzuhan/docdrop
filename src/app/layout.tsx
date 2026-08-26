@@ -1,3 +1,4 @@
+import { KaiCorpFooter } from "@/components/kaicorp-footer";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -48,6 +49,7 @@ export default function RootLayout({
       <body className="min-h-dvh flex flex-col">
         <ThemeProvider>
           {children}
+        <KaiCorpFooter />
           <Toaster position="top-center" richColors closeButton />
           <ServiceWorkerRegistration />
         </ThemeProvider>

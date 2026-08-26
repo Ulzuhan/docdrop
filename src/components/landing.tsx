@@ -44,7 +44,8 @@ export function Landing() {
               </p>
 
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
-                <Button size="lg" className="h-12 px-7 text-base" render={<Link href="/api/auth/login">Sign in to upload</Link>} />
+                <Button size="lg" className="h-12 px-7 text-base" render={<Link href="https://auth.kaicorplabs.com/if/flow/enroll-docdrop/">Request an account</Link>} />
+                <Button size="lg" variant="outline" className="h-12 px-7 text-base" render={<Link href="/api/auth/login">Sign in</Link>} />
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Got a guest link instead? Open it — it works without an account.
@@ -91,7 +92,7 @@ export function Landing() {
           <Button
             size="lg"
             className="mt-7 h-12 px-7 text-base"
-            render={<Link href="/api/auth/login">Sign in</Link>}
+            render={<Link href="https://auth.kaicorplabs.com/if/flow/enroll-docdrop/">Request an account</Link>}
           />
         </section>
       </main>
