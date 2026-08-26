@@ -24,6 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PORT: 3010
+      # Un secreto de usar y tirar, solo para que la suite pueda firmarse una
+      # sesión: subir dejó de ser público al mudar la identidad a Authentik.
+      # No abre nada — el servidor de CI vive noventa segundos y muere.
+      DOCDROP_SESSION_SECRET: ci-only-not-a-real-secret
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +50,7 @@ jobs:
         run: |
           npm run start &
           for i in $(seq 1 30); do
-            curl -sf "http://127.0.0.1:$PORT/api/files" >/dev/null && break
+            curl -sf "http://127.0.0.1:$PORT/" >/dev/null && break
             sleep 1
           done
           npm run test:upload

@@ -12,9 +12,57 @@
  * It deletes nothing it did not create: every test file is uploaded with the minimum
  * TTL and removed at the end.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const BASE = process.env.BASE || `http://127.0.0.1:${process.env.PORT || 3010}`;
+
+/**
+ * Subir exige sesión desde que la identidad se mudó a Authentik, así que la
+ * suite necesita una. No se abre ninguna puerta para las pruebas: se hacen las
+ * dos cosas que hace la aplicación al entrar alguien — escribir su ficha de
+ * usuario y firmarle la cookie— con el mismo formato y el mismo secreto
+ * (`src/lib/auth.ts` y `src/lib/users.ts`).
+ *
+ * Sin `DOCDROP_SESSION_SECRET` no se puede firmar nada, y la suite lo dice en
+ * vez de estrellarse contra un 401 sin explicación.
+ */
+const TEST_SUB = "test-suite";
+const TEST_UID = "u_test_suite";
+
+async function seedUser() {
+  // Misma ruta y mismo nombre de fichero que `users.ts`: el sub, hasheado.
+  const dir = join(process.env.DOCDROP_DATA_DIR || ".docdrop-uploads", "users");
+  await mkdir(dir, { recursive: true });
+  const nombre = createHash("sha256").update(TEST_SUB).digest("hex");
+  const ahora = Date.now();
+  await writeFile(
+    join(dir, `${nombre}.json`),
+    JSON.stringify(
+      { id: TEST_UID, oidcSub: TEST_SUB, email: "suite@example.invalid",
+        name: "Upload suite", createdAt: ahora, lastSeenAt: ahora },
+      null, 2
+    )
+  );
+}
+
+function sessionCookie() {
+  const secret = process.env.DOCDROP_SESSION_SECRET;
+  if (!secret) return null;
+  const payload = Buffer.from(
+    JSON.stringify({ uid: TEST_UID, exp: Date.now() + 3_600_000 })
+  ).toString("base64url");
+  const firma = createHmac("sha256", secret).update(payload).digest("base64url");
+  return `docdrop_session=${payload}.${firma}`;
+}
+
+// Se envuelve `fetch` en vez de tocar las once llamadas: la cookie es un
+// detalle del transporte y no de lo que cada prueba comprueba.
+const COOKIE = sessionCookie();
+const sinCookie = globalThis.fetch;
+globalThis.fetch = (url, init = {}) =>
+  sinCookie(url, COOKIE ? { ...init, headers: { ...(init.headers ?? {}), cookie: COOKIE } } : init);
 
 let passed = 0;
 let failed = 0;
@@ -49,9 +97,24 @@ function putPart(uploadId, index, chunk, headers = {}) {
 async function main() {
   console.log(`Testing against ${BASE}\n`);
 
-  const health = await fetch(`${BASE}/api/files`).catch(() => null);
+  // Se sondea la portada y no `/api/files`: ese listado enumera TODOS los
+  // enlaces activos, así que desde que la identidad vive en Authentik exige
+  // sesión y devuelve 401. El sondeo daba entonces "no hay servidor" con el
+  // servidor perfectamente levantado. Las rutas que esta suite ejercita
+  // (`/api/upload/*`) siguen sin pedir sesión, que es lo que se está probando.
+  const health = await fetch(`${BASE}/`).catch(() => null);
   if (!health?.ok) {
     console.error(`No server at ${BASE}. Start one with: npm run start`);
+    process.exit(1);
+  }
+  await seedUser();
+  if (!COOKIE) {
+    console.error(
+      "Sin DOCDROP_SESSION_SECRET no se puede firmar una sesión, y subir la exige.\n" +
+      "Arranca el servidor y la suite con el mismo valor:\n" +
+      "  DOCDROP_SESSION_SECRET=cualquier-cosa npm run start &\n" +
+      "  DOCDROP_SESSION_SECRET=cualquier-cosa npm run test:upload"
+    );
     process.exit(1);
   }
 
