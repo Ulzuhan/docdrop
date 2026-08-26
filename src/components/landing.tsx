@@ -24,7 +24,7 @@ export function Landing() {
         }
       />
 
-      <main className="flex-1 pb-safe">
+      <main className="kc-product-landing flex-1 pb-safe">
         {/* ── Hero ───────────────────────────────────────────────────── */}
         <section className="mx-auto w-full max-w-5xl overflow-x-clip px-4 pt-12 pb-16 sm:px-6 sm:pt-20 sm:pb-24">
           <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
@@ -66,7 +66,7 @@ export function Landing() {
               Why this and not a chat app
             </h2>
 
-            <div className="mt-8 grid gap-x-10 gap-y-9 sm:grid-cols-2">
+            <div className="kc-card-grid mt-8 grid gap-x-10 gap-y-9 sm:grid-cols-2">
               {FEATURES.map(({ Icon, title, body }) => (
                 <div key={title}>
                   <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">

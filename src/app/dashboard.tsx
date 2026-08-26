@@ -193,8 +193,11 @@ export function Dashboard() {
               aria-label="Log out"
               className="size-10 rounded-full text-muted-foreground hover:text-foreground"
               onClick={async () => {
-                await fetch("/api/auth/logout", { method: "POST" });
-                window.location.href = "/login";
+                const res = await fetch("/api/auth/logout", { method: "POST" });
+                // Antes iba a /login, que en DocDrop no existe: cerrar sesión
+                // terminaba en un 404. Ahora se sigue al proveedor.
+                const { next } = await res.json().catch(() => ({ next: "/" }));
+                window.location.href = next ?? "/";
               }}
             >
               <LogOut className="size-[18px]" />
@@ -203,7 +206,7 @@ export function Dashboard() {
         }
       />
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-8 pb-safe sm:px-6 sm:pt-12">
+      <main className="kc-workspace mx-auto w-full max-w-4xl flex-1 px-4 pt-8 pb-safe sm:px-6 sm:pt-12">
         <div className="mb-8 text-center sm:mb-10">
           <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
             Share files in seconds

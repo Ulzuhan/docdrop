@@ -61,10 +61,18 @@ export function authorizeUrl(
   return url.toString();
 }
 
-export function endSessionUrl(cfg: OidcConfig, returnTo: string): string {
-  const url = new URL(`${cfg.publicBase}${APP_PATH}/docdrop/end-session/`);
-  url.searchParams.set("post_logout_redirect_uri", returnTo);
-  return url.toString();
+export function endSessionUrl(cfg: OidcConfig): string {
+  // Sin `post_logout_redirect_uri` a propósito. Volver a la aplicación
+  // exigiría mandar `id_token_hint` —Authentik lo pide, es requisito de
+  // certificación OIDC— y eso significaría guardar el id_token de cada
+  // sesión: cambio de esquema donde la sesión vive en base de datos, y ~1 KB
+  // más de cookie en CADA petición donde vive en la cookie. Demasiado coste
+  // permanente para un detalle estético.
+  //
+  // Sin él, el proveedor cierra la sesión y deja al usuario en la pantalla
+  // de entrada de KaiCorp Labs, que pide credenciales: exactamente la señal
+  // de que ha salido de verdad.
+  return `${cfg.publicBase}${APP_PATH}/docdrop/end-session/`;
 }
 
 // ─── PKCE ───────────────────────────────────────────────────────────
