@@ -1,0 +1,25 @@
+.dd-workspace { --dd-panel: color-mix(in oklch, var(--card) 86%, transparent); }
+.dd-workspace-header { padding-bottom: 1.6rem; border-bottom: 1px solid color-mix(in oklch, var(--primary) 13%, var(--border)); }
+.dd-workspace-header h1 { font-size: clamp(2.4rem, 5vw, 4.3rem); }
+.dd-upload-workbench { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(19rem, .65fr); gap: 1rem; align-items: stretch; }
+.dd-dropzone { min-height: 28rem; display: grid; border-width: 1px; border-style: solid; background: radial-gradient(80% 75% at 50% 50%, color-mix(in oklch, var(--primary) 7%, transparent), transparent 72%), var(--dd-panel); box-shadow: inset 0 1px 0 color-mix(in oklch, white 5%, transparent), 0 24px 70px color-mix(in oklch, black 20%, transparent); }
+.dd-dropzone > button { min-height: 100%; }
+.dd-dropzone > button > span:first-of-type { width: 4.5rem; height: 4.5rem; box-shadow: 0 14px 40px color-mix(in oklch, var(--primary) 18%, transparent); }
+.dd-upload-settings { margin: 0; padding: 1.25rem; border: 1px solid color-mix(in oklch, var(--primary) 12%, var(--border)); border-radius: 1rem; background: linear-gradient(145deg, color-mix(in oklch, var(--primary) 5%, transparent), transparent 48%), var(--dd-panel); display: flex; flex-direction: column; justify-content: center; }
+.dd-upload-settings > div:first-child { padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.dd-upload-settings [role="radiogroup"] { min-height: 3rem; padding: .35rem; }
+.dd-upload-settings [role="radio"] { min-height: 2.35rem; }
+.dd-upload-queue { grid-column: 1 / -1; margin-top: 0; padding: 1rem; border: 1px solid color-mix(in oklch, var(--primary) 12%, var(--border)); border-radius: 1rem; background: var(--dd-panel); }
+.dd-upload-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+.dd-upload-items > li { margin: 0; }
+.dd-files { padding-top: 1.5rem; border-top: 1px solid color-mix(in oklch, var(--primary) 12%, var(--border)); }
+.dd-files > div:first-child h2 { font-family: var(--kc-font-mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; }
+.dd-file-row { background: linear-gradient(100deg, color-mix(in oklch, var(--primary) 3%, transparent), transparent 38%), var(--dd-panel); transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease; }
+.dd-file-row:hover { transform: translateX(3px); border-color: color-mix(in oklch, var(--primary) 28%, var(--border)); }
+.dd-file-row input[type="checkbox"] { width: 1.1rem; height: 1.1rem; }
+.dd-file-row [class*="rounded-full"] { overflow: hidden; }
+.dd-files > ul { display: grid; gap: .65rem; }
+@media (min-width: 70rem) { .dd-files > ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dd-file-row > div:first-child { min-height: 5.5rem; } }
+@media (max-width: 50rem) { .dd-upload-workbench { grid-template-columns: 1fr; } .dd-dropzone { min-height: 20rem; } .dd-upload-queue { grid-column: 1; } }
+@media (max-width: 39.99rem) { .dd-workspace-header { text-align: left; } .dd-upload-settings { padding: 1rem; } .dd-upload-items { grid-template-columns: 1fr; } .dd-file-row > div:first-child { flex-wrap: wrap; } .dd-file-row > div:first-child > div:last-child { width: 100%; justify-content: flex-end; } }
+@media (prefers-reduced-motion: reduce) { .dd-file-row { transition: none; } }

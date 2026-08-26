@@ -57,7 +57,7 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
   }
 
   return (
-    <li className="group relative overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:border-border hover:bg-card">
+    <li className="dd-file-row group relative overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:border-border hover:bg-card">
       <div className="flex items-start gap-3 p-3 sm:items-center sm:p-4">
         {/* Select to download several together as one archive. */}
         <input

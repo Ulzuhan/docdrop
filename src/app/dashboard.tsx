@@ -206,8 +206,8 @@ export function Dashboard() {
         }
       />
 
-      <main className="kc-workspace mx-auto w-full max-w-4xl flex-1 px-4 pt-8 pb-safe sm:px-6 sm:pt-12">
-        <div className="mb-8 text-center sm:mb-10">
+      <main className="kc-workspace dd-workspace mx-auto w-full max-w-6xl flex-1 px-4 pt-8 pb-safe sm:px-6 sm:pt-12">
+        <div className="dd-workspace-header mb-8 text-center sm:mb-10">
           <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
             Share files in seconds
           </h1>
@@ -217,7 +217,7 @@ export function Dashboard() {
         </div>
 
         {/* ── Upload area ────────────────────────────────────────────── */}
-        <section aria-label="Upload files">
+        <section aria-label="Upload files" className="dd-upload-workbench">
           <div
             onDragEnter={(e) => {
               e.preventDefault();
@@ -240,7 +240,7 @@ export function Dashboard() {
                 if (dropped.length > 0) enqueue(dropped);
               });
             }}
-            className={`relative overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
+            className={`dd-dropzone relative overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
               isDragging
                 ? "border-primary bg-primary/10 shadow-lg shadow-primary/10 sm:scale-[1.01]"
                 : "border-border bg-card/40 hover:border-primary/50 hover:bg-card/70"
@@ -290,7 +290,7 @@ Tap to choose files
             </button>
           </div>
 
-          <div className="mt-5 space-y-4">
+          <div className="dd-upload-settings mt-5 space-y-4">
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <Button
                 variant="ghost"
@@ -387,7 +387,7 @@ Tap to choose files
         </section>
 
         {/* ── Listing ────────────────────────────────────────────────── */}
-        <section aria-label="Active files" className="mt-10 sm:mt-12">
+        <section aria-label="Active files" className="dd-files mt-10 sm:mt-12">
           <div className="mb-3 flex min-h-9 items-center justify-between gap-2 px-1">
             <h2 className="text-sm font-medium text-muted-foreground">
               Active files {files.length > 0 && `(${files.length})`}

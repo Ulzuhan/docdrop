@@ -228,7 +228,7 @@ export function UploadQueue({
   const globalPct = totalBytes > 0 ? Math.round((loadedBytes / totalBytes) * 100) : 0;
 
   return (
-    <section aria-label="Upload queue" className="mt-6 space-y-3">
+    <section aria-label="Upload queue" className="dd-upload-queue mt-6 space-y-3">
       {items.length > 1 && (
         <div className="rounded-xl border border-border bg-card/60 p-3">
           <div className="mb-2 flex items-center justify-between text-sm">
@@ -245,7 +245,7 @@ export function UploadQueue({
         </div>
       )}
 
-      <ul className="space-y-2">
+      <ul className="dd-upload-items space-y-2">
         {items.map((item) => {
           const pct =
             item.state === "done"

@@ -169,7 +169,12 @@
 }
 
 /* Product workspace: the same level of material and hierarchy after sign-in. */
-.kc-workspace { --kc-product-accent: var(--primary, var(--accent)); position: relative; isolation: isolate; }
+/* `overflow: clip` no es adorno: el ::before de abajo se extiende -18vw por
+   cada lado y sin recortarlo la página entera gana scroll horizontal —230 px
+   a 1280 de ancho—. `.kc-product-landing` ya lo llevaba; aquí faltaba.
+   `clip` y no `hidden` a propósito: hidden crea un contenedor de scroll y
+   rompe cualquier `position: sticky` que cuelgue dentro. */
+.kc-workspace { --kc-product-accent: var(--primary, var(--accent)); position: relative; isolation: isolate; overflow: clip; }
 .kc-workspace::before { content: ""; position: absolute; z-index: -1; inset: -6rem -18vw auto; height: 30rem; pointer-events: none; background: radial-gradient(50% 70% at 50% 0%, color-mix(in oklch, var(--kc-product-accent) 10%, transparent), transparent 74%); }
 .kc-workspace h1 { font-size: clamp(2rem, 4vw, 3.25rem); line-height: 1; letter-spacing: -0.045em; }
 .kc-workspace h2 { letter-spacing: -0.03em; }
