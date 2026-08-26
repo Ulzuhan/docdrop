@@ -160,6 +160,21 @@
     min-height: auto;
     padding: 1.2rem;
   }
+
+  /* El titular, a tamaño de móvil.
+     `clamp(2.85rem, 5vw, 4.8rem)` parece adaptativo pero no lo es aquí: a 390 px
+     de ancho, 5vw son 19 px, así que gana el MÍNIMO de 45,6 px — un tamaño
+     elegido para escritorio aplicándose en un teléfono. En TabUp eso partía el
+     titular en cuatro líneas y se comía la primera pantalla entera.
+     Y `max-width: 13ch` empeoraba lo mismo: a ese tamaño son ~220 px de los 350
+     disponibles, forzando saltos de línea de más. */
+  .kc-product-landing > section:first-child h1,
+  .kc-product-landing > main > section:first-child h1 {
+    max-width: 20ch;
+    font-size: clamp(2.1rem, 8.5vw, 2.9rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
