@@ -151,7 +151,10 @@ export function useUploadQueue({
               update(key, { state: "error", error: "No longer authorised" });
               onUnauthorized();
             } else {
-              window.location.href = "/login";
+              // `/login` no existe en esta aplicación —solo hay `/`— así que esto
+              // llevaba a un 404 cuando caducaba la sesión. El punto de entrada real
+              // es la ruta de API, que redirige al proveedor de identidad.
+              window.location.href = "/api/auth/login";
             }
             return;
           }

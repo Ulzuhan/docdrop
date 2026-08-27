@@ -56,21 +56,23 @@ echo "==> Configuration ($ENV_FILE)"
 if [[ -f "$ENV_FILE" ]]; then
   echo "    already exists, left untouched"
 else
-  # No password: the service starts open, which suits a private network or a
-  # temporary tunnel. To protect it, add the two lines printed by
-  # `npm run set-password` and restart.
+  # La plantilla se crea SIN credenciales, y con ellas vacías la aplicación no
+  # deja entrar a nadie. No existe un modo abierto al que caer: el de contraseña
+  # local se retiró junto con `set-password`.
   cat > "$ENV_FILE" <<'ENVEOF'
 # Storage limits (bytes)
 DOCDROP_MAX_FILE_BYTES=10737418240
 DOCDROP_MAX_TOTAL_BYTES=21474836480
 
-# Dashboard password — OPTIONAL. Without these two lines the service runs OPEN:
-# anyone who reaches it can upload files and see the full listing.
-# To enable it:  npm run set-password  and paste its output here.
-# DOCDROP_PASSWORD_HASH=
-# DOCDROP_SESSION_SECRET=
+# Identidad — OBLIGATORIA. Sin esto la aplicación no deja entrar a nadie.
+# DOCDROP_SESSION_SECRET=      # openssl rand -hex 32
+# DOCDROP_OIDC_CLIENT_ID=
+# DOCDROP_OIDC_CLIENT_SECRET=
+# DOCDROP_OIDC_REDIRECT_URI=
+# DOCDROP_OIDC_PUBLIC_BASE=
+# DOCDROP_OIDC_INTERNAL_BASE=http://127.0.0.1:9100
 ENVEOF
-  echo "    created in OPEN mode (no password)"
+  echo "    creado sin credenciales: hay que rellenarlas antes de que entre nadie"
 fi
 chown root:"$SERVICE_USER" "$ENV_FILE"
 chmod 640 "$ENV_FILE"   # readable by the service, not by other users

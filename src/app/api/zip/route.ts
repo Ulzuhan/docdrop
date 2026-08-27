@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
-import { blobPath, claimDownload, contentDisposition, isValidId } from "@/lib/store";
+import { blobPath, claimDownload, contentDisposition, isValidId, retireIfExhausted } from "@/lib/store";
 import { createZipStream, uniqueNames, type ZipEntry } from "@/lib/zip";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
@@ -41,9 +41,13 @@ export async function GET(request: NextRequest) {
   // Downloads are claimed up front, so the counter reflects what is actually going
   // to be sent and per-file limits are respected.
   const entries: ZipEntry[] = [];
+  // Los que sí se reclamaron. No vale recorrer `ids` por índice después: los que
+  // fallan no entran en `entries`, y las posiciones dejarían de corresponderse.
+  const reclamados: string[] = [];
   for (const id of ids) {
     const claim = await claimDownload(id);
     if (!claim.ok) continue;
+    reclamados.push(id);
     entries.push({
       name: claim.meta.originalName,
       path: blobPath(id),
@@ -70,6 +74,18 @@ export async function GET(request: NextRequest) {
   const stamp = new Date().toISOString().slice(0, 10);
 
   const zip = createZipStream(entries);
+
+  // La descarga individual retira el fichero cuando el envío termina; esta ruta
+  // no lo hacía. `claimDownload()` ya había descontado la descarga, así que el
+  // contador quedaba a cero pero los bytes seguían en disco hasta que alguien
+  // volviera a pedirlo o pasara el barrido. En una herramienta cuyo trato es
+  // "se borra solo", esa diferencia importa.
+  //
+  // `close` y no `end`: salta también si el cliente corta a mitad, y ahí la
+  // descarga ya está contada igualmente.
+  zip.on("close", () => {
+    for (const id of reclamados) void retireIfExhausted(id).catch(() => {});
+  });
 
   return new NextResponse(Readable.toWeb(zip) as unknown as ReadableStream, {
     status: 200,

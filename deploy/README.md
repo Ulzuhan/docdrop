@@ -42,11 +42,13 @@ systemd-analyze security docdrop.service
 Environment variables live in `/etc/docdrop.env` (mode 640, readable by the service
 only). See the main README for the full list.
 
-By default the service starts **open**, with no password. To protect it:
+The service does **not** start open: without a signing secret and an OIDC client
+it lets nobody in, and there is no password mode to fall back to — that one was
+removed, along with the `set-password` script this section used to point at.
 
 ```bash
-npm run set-password          # prints the two lines
-sudo nano /etc/docdrop.env    # uncomment and paste them
+openssl rand -hex 32          # DOCDROP_SESSION_SECRET
+sudo nano /etc/docdrop.env    # that, plus the DOCDROP_OIDC_* values
 sudo systemctl restart docdrop
 ```
 

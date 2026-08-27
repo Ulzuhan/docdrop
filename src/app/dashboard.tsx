@@ -28,7 +28,8 @@ const DOWNLOAD_OPTIONS = [
 
 /**
  * The dashboard proper. Client component; the server gate lives in page.tsx,
- * which redirects to /login before any of this is ever painted.
+ * which shows the landing page instead when there is no session — it does not
+ * redirect anywhere, and `/login` does not exist in this app.
  */
 export function Dashboard() {
   const [isDragging, setIsDragging] = useState(false);
@@ -87,7 +88,10 @@ export function Dashboard() {
       try {
         const res = await fetch("/api/files");
         if (res.status === 401) {
-          window.location.href = "/login";
+          // `/login` no existe en esta aplicación —solo hay `/`— así que esto
+          // llevaba a un 404 cuando caducaba la sesión. El punto de entrada real
+          // es la ruta de API, que redirige al proveedor de identidad.
+          window.location.href = "/api/auth/login";
           return;
         }
         if (!res.ok) return;

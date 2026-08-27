@@ -14,11 +14,16 @@ services:
     volumes:
       - docdrop-data:/data
     environment:
-      # Optional. Without a password the service runs OPEN: anyone who reaches it
-      # can upload and see the full listing. Generate these with:
-      #   docker run --rm ghcr.io/ulzuhan/docdrop:latest node scripts/set-password.mjs
-      # DOCDROP_PASSWORD_HASH: ""
+      # OBLIGATORIAS. Sin ellas la aplicación no deja entrar a nadie: el modo de
+      # contraseña local se retiró y NO hay modo abierto al que caer — un endpoint
+      # de subida al alcance de cualquiera es alojamiento anónimo gratis.
+      #   DOCDROP_SESSION_SECRET: firma las cookies (openssl rand -hex 32)
       # DOCDROP_SESSION_SECRET: ""
+      # DOCDROP_OIDC_CLIENT_ID: ""
+      # DOCDROP_OIDC_CLIENT_SECRET: ""
+      # DOCDROP_OIDC_REDIRECT_URI: "https://ejemplo/api/auth/callback"
+      # DOCDROP_OIDC_PUBLIC_BASE: "https://auth.ejemplo"
+      # DOCDROP_OIDC_INTERNAL_BASE: "http://127.0.0.1:9100"
       DOCDROP_MAX_FILE_BYTES: "10737418240"   # 10 GB per file
       DOCDROP_MAX_TOTAL_BYTES: "21474836480"  # 20 GB total
     # Hardening: the app only needs to read its own code and write to /data.
