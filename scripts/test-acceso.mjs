@@ -14,7 +14,7 @@
  * Y una cuarta cosa, que es la que faltaba: tener acceso para subir no es lo
  * mismo que ser el dueño de una subida concreta.
  */
-import { api, check, crearEnlace, crearUsuario, firmar, invitado, nota, resumen, sesion, subir, BASE } from "./comun.mjs";
+import { api, check, crearEnlace, crearUsuario, firmar, invitado, resumen, sesion, subir, BASE } from "./comun.mjs";
 
 await crearUsuario("usuario-a");
 await crearUsuario("usuario-b");
@@ -29,6 +29,85 @@ check("sin cookie, no", (await api("/api/files")).status, 401);
 check("ni crea enlaces de invitado", (await api("/api/guest-links", { metodo: "POST", cuerpo: {} })).status, 401);
 check("ni lanza la limpieza", (await api("/api/cleanup", { metodo: "POST" })).status, 401);
 check("ni inicia una subida", (await api("/api/upload/init", { metodo: "POST", cuerpo: { filename: "x", size: 1 } })).status, 401);
+
+console.log("\nPeticiones simples desde otro origen");
+const cruzadas = { Origin: "https://evil.example.com", "Sec-Fetch-Site": "same-site" };
+check(
+  "un dominio hermano no fuerza una subida directa",
+  (await subir(Buffer.from("no debe guardarse"), { cookie: a, cabeceras: cruzadas })).status,
+  403
+);
+check(
+  "ni fuerza el barrido",
+  (await api("/api/cleanup", { cookie: a, metodo: "POST", cabeceras: cruzadas })).status,
+  403
+);
+const salidaCruzada = await api("/api/auth/logout", {
+  cookie: a,
+  metodo: "POST",
+  cabeceras: cruzadas,
+});
+check("ni fuerza el cierre de sesión", salidaCruzada.status, 403);
+check("y no manda borrar la cookie", salidaCruzada.cab["set-cookie"] ?? null, null);
+
+/**
+ * Y la cabecera que decide de dónde viene la petición no la puede escribir quien
+ * llama.
+ *
+ * `X-Forwarded-Host` **no la reemplaza este despliegue**: comprobado en vivo contra
+ * el túnel, llega tal cual mientras `Host` sigue valiendo el nombre de verdad.
+ * Mientras se prefirió la primera, los tres guardianes se saltaban solos: cerrar la
+ * sesión, lanzar la purga y **escribir bytes elegidos por quien llama**.
+ *
+ * El `Origin` va con el mismo esquema que ve el servidor de pruebas, a propósito:
+ * con otro, la comprobación rechazaría por el esquema y este test pasaría aunque el
+ * fallo siguiera ahí. Y sin `Sec-Fetch-Site`, que es como llega un navegador que no
+ * manda Fetch Metadata: deja sola a la comprobación de origen, que es la que se
+ * quiere probar.
+ */
+const falseada = { Origin: "http://malo.example", "X-Forwarded-Host": "malo.example" };
+check(
+  "una cabecera X-Forwarded-Host inventada no cuela una subida",
+  (await subir(Buffer.from("tampoco debe guardarse"), { cookie: a, cabeceras: falseada })).status,
+  403
+);
+check(
+  "ni el barrido",
+  (await api("/api/cleanup", { cookie: a, metodo: "POST", cabeceras: falseada })).status,
+  403
+);
+check(
+  "ni el cierre de sesión",
+  (await api("/api/auth/logout", { cookie: a, metodo: "POST", cabeceras: falseada })).status,
+  403
+);
+check("y la sesión sigue en pie", (await api("/api/files", { cookie: a })).status, 200);
+
+// Cerrar una subida también es un POST sin cuerpo, así que necesitaba el mismo
+// guardián y no lo tenía: desde un dominio hermano devolvía 200. La comprobación de
+// dueño no ayuda aquí, porque la credencial que viaja es la de la víctima.
+const enVuelo = await api("/api/upload/init", {
+  cookie: a,
+  metodo: "POST",
+  cuerpo: { filename: "en-vuelo.bin", size: 1024 },
+});
+await fetch(`${BASE}/api/upload/${enVuelo.body.uploadId}/part/0`, {
+  method: "PUT",
+  body: Buffer.alloc(1024, 1),
+  headers: { cookie: a, "content-type": "application/octet-stream" },
+});
+check(
+  "un dominio hermano no cierra una subida ajena",
+  (await api(`/api/upload/${enVuelo.body.uploadId}/complete`, { cookie: a, metodo: "POST", cabeceras: cruzadas })).status,
+  403
+);
+// Y el dueño sí la cierra: un candado que también deja fuera a quien subió no
+// arregla nada, rompe las subidas.
+check(
+  "pero el dueño sí",
+  (await api(`/api/upload/${enVuelo.body.uploadId}/complete`, { cookie: a, metodo: "POST" })).status,
+  200
+);
 
 console.log("\nSesiones que no valen");
 const [carga, firma] = a.split("=")[1].split(".");

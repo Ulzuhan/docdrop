@@ -12,7 +12,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const BASE = process.env.BASE || "http://127.0.0.1:3995";
-const SECRETO = process.env.DOCDROP_SESSION_SECRET || "secreto-de-pruebas";
+const SECRETO = process.env.DOCDROP_SESSION_SECRET || "secreto-de-pruebas-docdrop-32-bytes-minimo";
 const DATOS = process.env.DOCDROP_DATA_DIR || ".docdrop-uploads";
 
 let pasan = 0;

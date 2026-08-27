@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { completeSession, readSession } from "@/lib/upload-session";
 import { credencialDe, esDueno, requireUploadAccess } from "@/lib/guest";
+import { isSameOriginMutation } from "@/lib/request-origin";
 
 /**
  * POST /api/upload/[uploadId]/complete — closes the upload.
@@ -9,9 +10,18 @@ import { credencialDe, esDueno, requireUploadAccess } from "@/lib/guest";
  * the list, so the client can re-send them instead of writing the upload off.
  */
 export async function POST(
-  request: Request,
+  request: NextRequest,
   ctx: RouteContext<"/api/upload/[uploadId]/complete">
 ) {
+  // Cerrar una subida es un POST sin cuerpo, así que la exigencia de
+  // `application/json` que cubre a las demás no llega aquí: una página hermana
+  // puede lanzarlo y el navegador manda la cookie, porque compartir dominio los
+  // hace el mismo sitio. La comprobación de dueño no ayuda —la credencial que
+  // viaja es la de la víctima—. Comprobado: devolvía 200.
+  if (!isSameOriginMutation(request)) {
+    return NextResponse.json({ error: "Cross-origin request refused" }, { status: 403 });
+  }
+
   const unauthorized = await requireUploadAccess(request);
   if (unauthorized) return unauthorized;
 

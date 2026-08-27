@@ -108,6 +108,73 @@ check(
   400
 );
 
+
+console.log("\nUna subida lenta no para a las demás");
+// La carrera de la cuota se cierra apartando el sitio bajo el candado. Lo que NO
+// puede hacerse es sostener el candado mientras el cuerpo va llegando: eso cierra
+// la carrera y de paso serializa la aplicación entera. Medido cuando estuvo así:
+// una subida de 1 MB tardaba 3,2 segundos esperando a otra que goteaba, y con un
+// fichero de varios gigas desde una casa eso son minutos con todo el mundo parado.
+// En una herramienta que existe para ficheros grandes, eso no vale.
+//
+// El umbral tiene margen de sobra: con el arreglo puesto la rápida tarda unos 16 ms
+// y la lenta unos 3,5 segundos. Cualquier valor entre medias sirve.
+const TROZOS = 6;
+const POR_TROZO = 64 * 1024;
+const goteo = (trozos, msEntre) =>
+  new ReadableStream({
+    async pull(c) {
+      this.i ??= 0;
+      if (this.i >= trozos) return c.close();
+      if (this.i > 0) await new Promise((r) => setTimeout(r, msEntre));
+      c.enqueue(new Uint8Array(POR_TROZO));
+      this.i++;
+    },
+  });
+
+// Con `Content-Length` declarado, que es lo que manda un navegador subiendo un
+// fichero. Importa: sin declararlo, una subida aparta todo el hueco que queda —la
+// opción conservadora, porque no se sabe cuánto va a ocupar— y en esta suite, que
+// corre con una cuota de 1 MiB a propósito, eso deja fuera a las demás. Declarado,
+// aparta lo suyo y ya está.
+const lenta = fetch(`${BASE}/api/upload`, {
+  method: "POST",
+  body: goteo(TROZOS, 500),
+  duplex: "half",
+  headers: {
+    cookie: a,
+    "x-filename": "lenta.bin",
+    "content-type": "application/octet-stream",
+    "content-length": String(TROZOS * POR_TROZO),
+  },
+}).then((r) => r.text());
+
+await new Promise((r) => setTimeout(r, 300));
+const t0 = Date.now();
+const rapida = await subir(Buffer.from("pequeña"), { cookie: a, nombre: "rapida.txt" });
+const tardo = Date.now() - t0;
+await lenta;
+nota("la rápida, con una lenta en curso", `${rapida.status} en ${tardo} ms`);
+check("la rápida no espera a la lenta", tardo < 1000, true);
+check("y entra igual", rapida.status, 200);
+
+console.log("\nLa cuota con dos subidas a la vez");
+const carrera = await Promise.all([
+  subir(Buffer.alloc(600 * 1024, 0x41), { cookie: a, nombre: "carrera-a.bin" }),
+  subir(Buffer.alloc(600 * 1024, 0x42), { cookie: a, nombre: "carrera-b.bin" }),
+]);
+check(
+  "sólo una reserva el espacio disponible",
+  carrera.map((r) => r.status).sort((x, y) => x - y),
+  [200, 507]
+);
+const ganadora = carrera.find((r) => r.status === 200)?.body?.id;
+check(
+  "el almacén no supera el MiB configurado",
+  (await api("/api/files", { cookie: a })).body.storage.usedBytes <= 1024 * 1024,
+  true
+);
+if (ganadora) await api(`/api/files/${ganadora}`, { cookie: a, metodo: "DELETE" });
 console.log("\nEl nombre del fichero que vuelve");
 // Una cabecera HTTP sólo admite bytes 0–255, así que un nombre con acentos o con
 // saltos de línea es por donde se colaría una cabecera entera si nadie mirase.

@@ -52,7 +52,19 @@ sudo nano /etc/docdrop.env    # that, plus the DOCDROP_OIDC_* values
 sudo systemctl restart docdrop
 ```
 
-Changing `DOCDROP_SESSION_SECRET` invalidates every open session.
+Changing `DOCDROP_SESSION_SECRET` invalidates every open session. The secret must contain
+at least 32 bytes; the documented openssl command generates 32 random bytes as 64 hex
+characters. Sessions last 12 hours by default and can be configured from 1 to 24 with
+`DOCDROP_SESSION_TTL_HOURS`.
+
+## Retention and backups
+
+Uploaded payloads promise expiry. Do not put `/var/lib/docdrop` into ordinary
+long-retention backups: a snapshot keeps files recoverable after DocDrop says they were
+deleted. The privacy-first policy is no payload backup. If recovery is required, encrypt
+copies and expire every snapshot no later than the shortest promised file TTL; disclose
+that live deletion does not immediately erase snapshots. See the repository security
+audit for the full rationale.
 
 ## Operations
 

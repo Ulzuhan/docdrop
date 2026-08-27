@@ -70,7 +70,7 @@ DOCDROP_MAX_TOTAL_BYTES=21474836480
 # DOCDROP_OIDC_CLIENT_SECRET=
 # DOCDROP_OIDC_REDIRECT_URI=
 # DOCDROP_OIDC_PUBLIC_BASE=
-# DOCDROP_OIDC_INTERNAL_BASE=http://127.0.0.1:9100
+# DOCDROP_OIDC_INTERNAL_BASE=       # defaults to PUBLIC_BASE
 ENVEOF
   echo "    creado sin credenciales: hay que rellenarlas antes de que entre nadie"
 fi

@@ -20,7 +20,8 @@
  *
  * The session is still a signed cookie (HMAC-SHA256) with no server-side
  * state, but it now names a user. Changing DOCDROP_SESSION_SECRET still
- * revokes every session at once; deleting somebody's account revokes theirs.
+ * revokes every session at once. Provider-side account removal takes effect when
+ * this short-lived cookie expires; there is no per-request OIDC introspection.
  *
  * Authorisation is enforced by requireSession() inside each route, as Next's
  * own documentation recommends — never by a proxy/middleware check alone.
@@ -31,10 +32,15 @@ import { findById, upsertFromIdentity, type DocDropUser } from "@/lib/users";
 import { oidcConfigured, type OidcIdentity } from "@/lib/oidc";
 
 export const SESSION_COOKIE = "docdrop_session";
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const configuredTtlHours = Number(process.env.DOCDROP_SESSION_TTL_HOURS ?? 12);
+const SESSION_TTL_HOURS = Number.isFinite(configuredTtlHours)
+  ? Math.min(24, Math.max(1, configuredTtlHours))
+  : 12;
+const SESSION_TTL_MS = SESSION_TTL_HOURS * 60 * 60 * 1000;
 
 function sessionSecret(): string | null {
-  return process.env.DOCDROP_SESSION_SECRET?.trim() || null;
+  const secret = process.env.DOCDROP_SESSION_SECRET?.trim();
+  return secret && Buffer.byteLength(secret, "utf8") >= 32 ? secret : null;
 }
 
 /**

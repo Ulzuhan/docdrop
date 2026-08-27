@@ -38,7 +38,10 @@ import {
 
 /** Chunk size. Comfortably below Cloudflare's 500 MiB cap, and small enough that
  *  retrying one is cheap on a bad network. */
-export const CHUNK_SIZE = Number(process.env.DOCDROP_CHUNK_BYTES) || 32 * 1024 * 1024;
+const configuredChunkSize = Number(process.env.DOCDROP_CHUNK_BYTES);
+export const CHUNK_SIZE = Number.isSafeInteger(configuredChunkSize) && configuredChunkSize > 0
+  ? Math.min(128 * 1024 * 1024, Math.max(1024 * 1024, configuredChunkSize))
+  : 32 * 1024 * 1024;
 
 /** How long a half-finished upload can be resumed. */
 export const SESSION_TTL = 24 * 60 * 60 * 1000;

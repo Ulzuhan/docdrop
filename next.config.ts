@@ -17,7 +17,7 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   // One year of HSTS: behind a tunnel access is always HTTPS.
-  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  { key: "Strict-Transport-Security", value: "max-age=31536000" },
 ];
 
 const nextConfig: NextConfig = {

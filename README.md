@@ -160,9 +160,11 @@ nobody can get in. That is on purpose: a file service that silently accepts uplo
 from anyone who finds the URL is worse than one that refuses to start properly.
 
 The session is a signed cookie (HMAC-SHA256) with no server-side state, so there is no
-session table to grow or clean. An account removed from the provider stops working on
-its next request rather than when its cookie expires: the user is looked up, not
-trusted from the cookie.
+session table to grow or clean. Its default lifetime is 12 hours (configurable from 1 to
+24). The local user record is looked up on every request, but DocDrop does not introspect
+the provider on every request: removing an account there takes effect when the current
+cookie expires and the next sign-in is refused. Rotate DOCDROP_SESSION_SECRET for
+immediate global revocation.
 
 ### Guest links, for people with no account
 
@@ -335,7 +337,7 @@ npm test                        # all three suites
 ./scripts/run-suites.sh acceso  # just one
 ```
 
-95 checks in three suites, no dependencies and no test framework. Each suite gets a
+101 checks in three suites, no dependencies and no test framework. Each suite gets a
 server the script starts itself, with **its own data directory** — never the real
 one. That directory is exported rather than merely handed to the server, and the
 difference is not cosmetic: while it was not, the suites seeded their user records
@@ -346,7 +348,7 @@ was looking somewhere else.
 `test-upload` — 18 checks over the upload protocol: chunking, resuming, idempotency,
 checksums, invalid indexes and limits.
 
-`test-acceso` — who can do what. The three kinds of visitor are not the same door: an
+`test-acceso` — 39 checks covering who can do what and cross-origin simple POSTs. The three kinds of visitor are not the same door: an
 account sees the whole listing and can delete anything (deliberate — this is a shared
 household drop box, and sign-ups are approved by a person), a guest link uploads and
 nothing else, and anybody with a link can download.
@@ -357,7 +359,7 @@ normal case — the second used to write chunk 0 of the file the first was uploa
 read its document name, complete it and cancel it. The worst part is not the
 nuisance: it is that the file that arrives is not the one that was sent.
 
-`test-ficheros` — the life of a file: download by link, the download cap that makes
+`test-ficheros` — 44 checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
 auto-destruct real, identifiers coming from the URL, and request bodies that do not
 parse.
 
@@ -397,35 +399,40 @@ working defaults.
 | `DOCDROP_CHUNK_BYTES` | 32 MiB | Chunk size |
 | `DOCDROP_REQUEST_TIMEOUT_MS` | 12h | Maximum duration of a request |
 | `DOCDROP_SESSION_SECRET` | — | Signs the session cookie. **Required** to sign in |
+| `DOCDROP_SESSION_TTL_HOURS` | 12 | Session lifetime, clamped to 1–24 hours |
 | `DOCDROP_OIDC_CLIENT_ID` | — | **Required.** See [Access model](#access-model) |
 | `DOCDROP_OIDC_CLIENT_SECRET` | — | **Required** |
 | `DOCDROP_OIDC_REDIRECT_URI` | — | **Required.** `https://your-host/api/auth/callback` |
-| `DOCDROP_OIDC_PUBLIC_BASE` | — | Where the browser is sent |
-| `DOCDROP_OIDC_INTERNAL_BASE` | — | Where the server talks to the provider, if that differs |
+| `DOCDROP_OIDC_PUBLIC_BASE` | — | **Required.** Where the browser is sent |
+| `DOCDROP_OIDC_INTERNAL_BASE` | public base | Where the server talks to the provider, if that differs |
+| `DOCDROP_OIDC_TIMEOUT_MS` | 10000 | Timeout for token and userinfo calls |
 
 ## Security
+\nThe complete Internet-facing threat model, findings, deployment requirements and verification evidence are in [the security and infrastructure audit](docs/SECURITY-AUDIT.md).
 
 Written on the assumption that it may be exposed to the internet through a tunnel
 that provides no WAF and no filtering of its own.
 
-- **Total storage quota**, so nobody can fill the machine's disk and take every other
-  service on it down.
-- **Per-IP rate limiting**: 5 login attempts per 15 min, 30 uploads/hour, 240
-  downloads/min. The IP comes from the **last** value of `X-Forwarded-For`, which the
+- **Total storage quota**, reserved under one process-wide lock for both chunked and
+  direct uploads, so concurrent requests cannot collectively overfill the store.
+- **Per-IP rate limiting**: 30 upload starts/hour, 240 downloads/min and tighter
+  limits on guest-token probes and ZIP generation. The IP comes from the **last** value of `X-Forwarded-For`, which the
   proxy overwrites. `X-Real-Ip` is deliberately not used: Tailscale was verified to
   pass it through untouched, so a client could invent one per request and dodge the
   limit.
 - **Ids are validated** before touching the filesystem: without that, an id like
   `../../etc` escapes the data directory.
-- **Headers**: CSP, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
+- **CSRF boundary**: JSON mutations require application/json; the simple raw upload,
+  cleanup and logout POSTs additionally validate Fetch Metadata and Origin.
+- **Headers**: nonce-based CSP, host-only HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
   `nosniff`, and no `X-Powered-By`.
 - **Uploads are only served inline for types that cannot run scripts** (video, audio,
   images except SVG, PDF). Anything else is forced to `attachment`. Serving arbitrary
   uploads inline from the same origin is what turns a file service into stored XSS.
 - **No password is stored here at all**: who may sign in is the identity provider's
-  business. The session is an HMAC-SHA256 signed cookie, `httpOnly` + `secure` +
-  `sameSite`, with the user looked up on every request rather than trusted from the
-  cookie — so an account removed at the provider stops working immediately.
+  business. The session is an HMAC-SHA256 signed cookie using at least 32 bytes of secret,
+  `httpOnly` + `secure` + `sameSite`. Provider-side revocation is bounded by the
+  12-hour default cookie lifetime; see Access model.
 
 ## Maintenance
 
@@ -433,11 +440,8 @@ The server **sweeps the store every hour** on its own (see `instrumentation-node
 expired files, exhausted ones and abandoned uploads. Without it an expired file was
 only deleted when someone tried to open it, so it kept eating into the quota forever.
 
-To force it by hand:
-
-```bash
-curl -X POST http://127.0.0.1:3010/api/cleanup
-```
+The `POST /api/cleanup` route can force the same sweep from an authenticated
+same-origin client; anonymous curl requests are deliberately refused.
 
 When a file runs out of downloads its content is deleted but a tombstone is kept for
 7 days, so the link can answer "max downloads reached" instead of an ambiguous 404.

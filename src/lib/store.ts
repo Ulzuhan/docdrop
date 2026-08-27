@@ -362,7 +362,7 @@ const CONTINUATION_TTL = 60 * 60 * 1000;
 const transfers = new Map<string, number>();
 let lastTransferSweep = 0;
 
-const transferKey = (id: string, client: string) => `${id} ${client}`;
+const transferKey = (id: string, client: string) => `${id}\0${client}`;
 
 /** Records a counted transfer, so this client's continuations are recognised. */
 export function registerTransfer(id: string, client: string): void {
@@ -399,17 +399,66 @@ export function isResumedTransfer(id: string, client: string): boolean {
  */
 const QUOTA_LOCK = "quota";
 
-export function withQuota<T>(bytes: number, create: () => Promise<T>): Promise<T | null> {
+/**
+ * Bytes prometidos a subidas que todavía están llegando.
+ *
+ * Existe para no tener que sostener el candado durante toda la transferencia. Una
+ * subida directa no ocupa sitio en disco hasta que termina, así que sin apuntarla
+ * en algún lado dos que empiecen a la vez ven el mismo hueco libre y las dos
+ * caben — que es la carrera que había—. Pero dejar el candado puesto mientras el
+ * cuerpo va llegando serializa la aplicación entera: medido, una subida de 1 MB
+ * tardaba 3,2 segundos porque esperaba a otra que goteaba, y con un fichero de
+ * varios gigas desde una casa eso son minutos con todo el mundo parado.
+ *
+ * Así que se reserva bajo el candado, se transmite fuera, y se suelta al acabar.
+ */
+let reservados = 0;
+
+/**
+ * Aparta sitio para una subida que va a empezar.
+ *
+ * `pedir` recibe lo que queda libre de verdad —lo que hay en disco y lo que otras
+ * subidas ya han prometido— y devuelve cuánto quiere apartar, o null si no cabe.
+ * Lo que devuelve esta función hay que soltarlo siempre, pase lo que pase.
+ */
+export function reservarEspacio(
+  pedir: (disponible: number) => number | null
+): Promise<number | null> {
   return serialize(QUOTA_LOCK, async () => {
     invalidateUsedBytes();
-    if ((await usedBytes()) + bytes > MAX_TOTAL_BYTES) return null;
+    const disponible = Math.max(0, MAX_TOTAL_BYTES - (await usedBytes()) - reservados);
+    const quiere = pedir(disponible);
+    if (quiere === null || quiere <= 0) return null;
+    reservados += quiere;
+    return quiere;
+  });
+}
+
+/** Devuelve lo apartado. Va siempre en un `finally`. */
+export function soltarEspacio(bytes: number): void {
+  reservados = Math.max(0, reservados - bytes);
+  // Lo que llegó a escribirse ya está en disco: el siguiente tiene que verlo.
+  invalidateUsedBytes();
+}
+
+export function withQuotaBudget<T>(
+  create: (availableBytes: number) => Promise<T>
+): Promise<T> {
+  return serialize(QUOTA_LOCK, async () => {
+    invalidateUsedBytes();
+    // Descontando lo prometido a las subidas en vuelo, que aún no está en disco.
+    const available = Math.max(0, MAX_TOTAL_BYTES - (await usedBytes()) - reservados);
     try {
-      return await create();
+      return await create(available);
     } finally {
       // Even a half-created entry occupies space: the next caller must see it.
       invalidateUsedBytes();
     }
   });
+}
+
+export function withQuota<T>(bytes: number, create: () => Promise<T>): Promise<T | null> {
+  return withQuotaBudget((available) => bytes > available ? Promise.resolve(null) : create());
 }
 
 // ─── Upload parameter validation ────────────────────────────────────

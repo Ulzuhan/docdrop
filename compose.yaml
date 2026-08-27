@@ -29,9 +29,11 @@ services:
     # Hardening: the app only needs to read its own code and write to /data.
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     security_opt:
       - no-new-privileges:true
+    mem_limit: 1g
+    pids_limit: 256
     cap_drop:
       - ALL
 

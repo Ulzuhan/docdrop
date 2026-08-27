@@ -20,8 +20,12 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const HOURS = 60 * 60 * 1000;
-const REQUEST_TIMEOUT = Number(process.env.DOCDROP_REQUEST_TIMEOUT_MS) || 12 * HOURS;
-const HEADERS_TIMEOUT = Number(process.env.DOCDROP_HEADERS_TIMEOUT_MS) || 60_000;
+function boundedMs(name, fallback, minimum, maximum) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
+}
+const REQUEST_TIMEOUT = boundedMs("DOCDROP_REQUEST_TIMEOUT_MS", 12 * HOURS, 60_000, 24 * HOURS);
+const HEADERS_TIMEOUT = boundedMs("DOCDROP_HEADERS_TIMEOUT_MS", 60_000, 5_000, 120_000);
 
 let patched = 0;
 

@@ -27,7 +27,7 @@ jobs:
       # Un secreto de usar y tirar, solo para que la suite pueda firmarse una
       # sesión: subir dejó de ser público al mudar la identidad a Authentik.
       # No abre nada — el servidor de CI vive noventa segundos y muere.
-      DOCDROP_SESSION_SECRET: ci-only-not-a-real-secret
+      DOCDROP_SESSION_SECRET: ci-only-docdrop-secret-at-least-32-bytes
 
     steps:
       - uses: actions/checkout@v4

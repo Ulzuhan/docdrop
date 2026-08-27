@@ -16,7 +16,8 @@ User=docdrop
 Group=docdrop
 
 WorkingDirectory=/opt/docdrop
-# The dash makes it optional: the service starts with no environment file (open mode).
+# The dash makes it optional: without credentials the service starts fail-closed and
+# lets nobody sign in. There is no open mode.
 EnvironmentFile=-/etc/docdrop.env
 Environment=NODE_ENV=production
 Environment=PORT=3010

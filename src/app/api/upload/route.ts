@@ -6,7 +6,6 @@ import { pipeline } from "stream/promises";
 import type { ReadableStream as NodeWebReadableStream } from "stream/web";
 import {
   MAX_FILE_SIZE,
-  MAX_TOTAL_BYTES,
   blobPath,
   clampMaxDownloads,
   clampTtlHours,
@@ -15,7 +14,8 @@ import {
   generateId,
   sanitizeFilename,
   sanitizeUploader,
-  usedBytes,
+  reservarEspacio,
+  soltarEspacio,
   writeMeta,
   type FileMeta,
 } from "@/lib/store";
@@ -28,6 +28,7 @@ import {
 import { currentUser } from "@/lib/auth";
 import { displayName } from "@/lib/users";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
+import { isSameOriginMutation } from "@/lib/request-origin";
 
 /**
  * POST /api/upload — the request body IS the file (not multipart).
@@ -44,6 +45,9 @@ import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
  * constant and independent of the file size.
  */
 export async function POST(request: NextRequest) {
+  if (!isSameOriginMutation(request)) {
+    return NextResponse.json({ error: "Cross-origin request refused" }, { status: 403 });
+  }
   // Uploading requires a session or a live guest link: exposed to the internet, an
   // open upload endpoint is free anonymous hosting and a trivial way to fill the disk.
   const unauthorized = await requireUploadAccess(request);
@@ -84,25 +88,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File too large. Max 10GB." }, { status: 413 });
   }
 
-  // Global quota: stops the store from growing until it fills the machine disk and
-  // takes every other service on the box down with it.
-  const used = await usedBytes();
-  const budget = MAX_TOTAL_BYTES - used;
-  if (budget <= 0) {
-    return NextResponse.json(
-      { error: "Storage full. Delete or wait for files to expire." },
-      { status: 507 }
-    );
-  }
-  if (Number.isFinite(declared) && declared > budget) {
+  // Se aparta el sitio bajo el candado y se transmite FUERA de él.
+  //
+  // Tenerlo puesto durante toda la transferencia cierra la carrera —dos subidas
+  // viendo el mismo hueco libre— pero serializa la aplicación entera: medido, una
+  // subida de 1 MB tardaba 3,2 segundos esperando a otra que goteaba, y con un
+  // fichero de varios gigas desde una casa eso son minutos con todo el mundo
+  // parado. En una herramienta que existe para ficheros grandes, eso no vale.
+  //
+  // Se aparta lo que el cliente declara; si no declara nada, lo que quepa, que es
+  // la opción conservadora.
+  const reservado = await reservarEspacio((disponible) => {
+    if (disponible <= 0) return null;
+    if (Number.isFinite(declared) && declared > disponible) return null;
+    const tope = Math.min(MAX_FILE_SIZE, disponible);
+    return Number.isFinite(declared) && declared > 0 ? Math.min(declared, tope) : tope;
+  });
+
+  if (reservado === null) {
     return NextResponse.json(
       { error: "Not enough storage left for this file." },
       { status: 507 }
     );
   }
 
+  try {
   // The real cut-off applies to what actually arrives, not to what was declared.
-  const hardCap = Math.min(MAX_FILE_SIZE, budget);
+  const hardCap = reservado;
 
   const id = generateId();
 
@@ -172,5 +184,10 @@ export async function POST(request: NextRequest) {
     }
     console.error("Upload error:", error);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+  }
+  } finally {
+    // Pase lo que pase. Si no se suelta, el hueco queda apartado para siempre y la
+    // instancia se va quedando sin sitio sola.
+    soltarEspacio(reservado);
   }
 }

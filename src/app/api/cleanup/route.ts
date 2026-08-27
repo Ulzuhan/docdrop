@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cleanup } from "@/lib/store";
 import { cleanupSessions } from "@/lib/upload-session";
 import { cleanupGuestLinks } from "@/lib/guest";
 import { requireSession } from "@/lib/auth";
+import { isSameOriginMutation } from "@/lib/request-origin";
 
 /**
  * POST /api/cleanup — deletes what expired, what ran out of downloads and the
@@ -12,7 +13,10 @@ import { requireSession } from "@/lib/auth";
  * on its own every hour (see instrumentation-node.ts), so this is only for forcing
  * it by hand.
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
+  if (!isSameOriginMutation(request)) {
+    return NextResponse.json({ error: "Cross-origin request refused" }, { status: 403 });
+  }
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 

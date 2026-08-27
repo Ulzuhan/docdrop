@@ -18,6 +18,7 @@
  * `multipart/form-data` o el de un formulario. Con `application/json` está
  * obligado a preguntar, y esa pregunta aquí no se contesta.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function jsonBody(request: Request): Promise<any | null> {
   const tipo = request.headers.get("content-type") ?? "";
   if (!/^application\/json\s*(;|$)/i.test(tipo.trim())) return null;

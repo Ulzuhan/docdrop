@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 
 PUERTO="${PORT:-3995}"
 export BASE="http://127.0.0.1:$PUERTO"
-export DOCDROP_SESSION_SECRET="${DOCDROP_SESSION_SECRET:-secreto-de-pruebas}"
+export DOCDROP_SESSION_SECRET="${DOCDROP_SESSION_SECRET:-secreto-de-pruebas-docdrop-32-bytes-minimo}"
 LOG="$(mktemp)"
 RAIZ_PRUEBAS="$(mktemp -d)"
 # Se EXPORTA, no sólo se le pasa al servidor.
@@ -56,6 +56,8 @@ parar() {
 trap 'parar; exit 130' INT TERM
 
 arrancar() {
+  local max_total=21474836480
+  [ "$suite" = "ficheros" ] && max_total=1048576
   ss -tln 2>/dev/null | grep -qE ":$PUERTO " && { echo "el puerto $PUERTO ya está ocupado"; return 1; }
 
   # Los valores de OIDC son de mentira a propósito: ninguna suite completa un
@@ -65,6 +67,7 @@ arrancar() {
   # secretos mezclados con los de la gente, en el mismo directorio y con la misma
   # limpieza automática pasándoles por encima.
   DOCDROP_DATA_DIR="$ALMACEN" \
+    DOCDROP_MAX_TOTAL_BYTES="$max_total" \
     DOCDROP_SESSION_SECRET="$DOCDROP_SESSION_SECRET" \
     DOCDROP_OIDC_CLIENT_ID=pruebas \
     DOCDROP_OIDC_CLIENT_SECRET=pruebas \
@@ -105,6 +108,8 @@ arrancar() {
 
 fallo=0
 for suite in "${SUITES[@]}"; do
+  rm -rf "$ALMACEN"
+  mkdir -p "$ALMACEN"
   arrancar || { fallo=1; continue; }
   printf "%-10s " "$suite"
   guion="scripts/test-$suite.mjs"
