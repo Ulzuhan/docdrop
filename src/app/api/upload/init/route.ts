@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonBody } from "@/lib/body";
 import { MAX_FILE_SIZE, clampTtlHours, withQuota } from "@/lib/store";
 import { CHUNK_SIZE, createSession } from "@/lib/upload-session";
-import {
-  MAX_GUEST_FILE_TTL_HOURS,
+import { MAX_GUEST_FILE_TTL_HOURS,
   guestFromRequest,
   recordGuestUpload,
-  requireUploadAccess,
-} from "@/lib/guest";
+  requireUploadAccess, } from "@/lib/guest";
 import { currentUser } from "@/lib/auth";
 import { displayName } from "@/lib/users";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -39,11 +38,12 @@ export async function POST(request: NextRequest) {
     maxDownloads?: unknown;
     uploadedBy?: unknown;
   };
-  try {
-    body = await request.json();
-  } catch {
+  // `null` es JSON válido: pasaba el catch y reventaba al leer un campo.
+  const cuerpo = await jsonBody(request);
+  if (!cuerpo) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
+  body = cuerpo;
 
   const filename = typeof body.filename === "string" ? body.filename : "";
   const size = Number(body.size);
@@ -76,8 +76,15 @@ export async function POST(request: NextRequest) {
     ? displayName(account)
     : (body.uploadedBy ?? (guest ? guest.label : undefined));
 
+  // Quién abre esta subida, para que nadie más pueda meterse en ella. Sale de lo
+  // que ya se ha resuelto arriba y no de una segunda consulta. Si no hay ni
+  // invitado ni cuenta —instancia sin identidad configurada— queda sin dueño, y
+  // entonces se comporta como antes: no hay a quién distinguir.
+  const owner = guest ? `guest:${guest.token}` : account ? `user:${account.id}` : undefined;
+
   const session = await withQuota(size, () =>
     createSession({
+      owner,
       filename,
       size,
       mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,

@@ -20,7 +20,7 @@ import { existsSync } from "fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { UPLOAD_DIR, sanitizeUploader } from "@/lib/store";
-import { requireSession } from "@/lib/auth";
+import { currentUser, requireSession } from "@/lib/auth";
 
 const GUESTS_DIR = join(UPLOAD_DIR, "guests");
 
@@ -186,4 +186,38 @@ export async function requireUploadAccess(request: Request): Promise<Response | 
   if (!unauthorized) return null; // owner (or auth not configured)
   if (await guestFromRequest(request)) return null;
   return unauthorized;
+}
+
+/**
+ * Con qué credencial viene esta petición: `user:<id>`, `guest:<token>`, o null.
+ *
+ * Existe porque tener acceso y ser el dueño de una subida concreta son dos cosas
+ * distintas, y hasta ahora se trataban como una. `requireUploadAccess` dice si
+ * quien llama puede subir *algo*; esto dice *quién es*, que es lo que hace falta
+ * para no dejar que se meta en la subida de otro.
+ *
+ * Comprobado antes de arreglarlo, con dos enlaces de invitado distintos: el
+ * segundo escribía el trozo 0 del fichero que estaba subiendo el primero, le leía
+ * el nombre del documento y le cancelaba la subida. Dos personas de fuera con
+ * enlaces distintos podían pisarse, y lo peor no es el estorbo: es que el fichero
+ * que acaba llegando no sea el que mandó quien lo mandó.
+ */
+export async function credencialDe(request: Request): Promise<string | null> {
+  const usuario = await currentUser();
+  if (usuario) return `user:${usuario.id}`;
+  const invitado = await guestFromRequest(request);
+  if (invitado) return `guest:${invitado.token}`;
+  return null;
+}
+
+/**
+ * Si quien llama puede tocar esta subida en concreto.
+ *
+ * Una sesión sin dueño es de antes de que esto existiera: se deja pasar para no
+ * romper las subidas en vuelo al desplegar. Duran 24 horas, así que pasado ese
+ * plazo no queda ninguna.
+ */
+export function esDueno(owner: string | undefined, credencial: string | null): boolean {
+  if (!owner) return true;
+  return credencial !== null && owner === credencial;
 }

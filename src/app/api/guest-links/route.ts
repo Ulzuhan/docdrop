@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonBody } from "@/lib/body";
 import { createGuestLink, listGuestLinks } from "@/lib/guest";
 import { requireSession } from "@/lib/auth";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -31,11 +32,12 @@ export async function POST(request: NextRequest) {
   if (!limit.allowed) return tooManyRequests(limit);
 
   let body: { ttlHours?: unknown; label?: unknown };
-  try {
-    body = await request.json();
-  } catch {
+  // `null` es JSON válido: pasaba el catch y reventaba al leer un campo.
+  const cuerpo = await jsonBody(request);
+  if (!cuerpo) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
+  body = cuerpo;
 
   const link = await createGuestLink(body);
   return NextResponse.json({ link }, { status: 201 });

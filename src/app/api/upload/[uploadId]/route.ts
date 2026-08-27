@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { abortSession, readSession, receivedParts } from "@/lib/upload-session";
-import { requireUploadAccess } from "@/lib/guest";
+import { credencialDe, esDueno, requireUploadAccess } from "@/lib/guest";
 
 /**
  * GET /api/upload/[uploadId] — status of an upload in flight.
@@ -15,6 +15,14 @@ export async function GET(request: Request, ctx: RouteContext<"/api/upload/[uplo
   const { uploadId } = await ctx.params;
   const session = await readSession(uploadId);
   if (!session) {
+    return NextResponse.json({ error: "Upload session not found" }, { status: 404 });
+  }
+  // Tener acceso y ser el dueño de ESTA subida son cosas distintas. Sin esto, con
+  // dos enlaces de invitado el segundo escribía el trozo 0 del fichero que estaba
+  // subiendo el primero, le leía el nombre del documento y le cancelaba la subida.
+  // Mismo 404 que si no existiera: quien no es de aquí no tiene por qué enterarse
+  // de que hay algo.
+  if (!esDueno(session.owner, await credencialDe(request))) {
     return NextResponse.json({ error: "Upload session not found" }, { status: 404 });
   }
   if (session.sessionExpiresAt < Date.now()) {
@@ -41,6 +49,14 @@ export async function DELETE(request: Request, ctx: RouteContext<"/api/upload/[u
   const { uploadId } = await ctx.params;
   const session = await readSession(uploadId);
   if (!session) {
+    return NextResponse.json({ error: "Upload session not found" }, { status: 404 });
+  }
+  // Tener acceso y ser el dueño de ESTA subida son cosas distintas. Sin esto, con
+  // dos enlaces de invitado el segundo escribía el trozo 0 del fichero que estaba
+  // subiendo el primero, le leía el nombre del documento y le cancelaba la subida.
+  // Mismo 404 que si no existiera: quien no es de aquí no tiene por qué enterarse
+  // de que hay algo.
+  if (!esDueno(session.owner, await credencialDe(request))) {
     return NextResponse.json({ error: "Upload session not found" }, { status: 404 });
   }
 

@@ -55,6 +55,17 @@ export interface UploadSession {
   createdAt: number;
   sessionExpiresAt: number;
   uploadedBy?: string;
+  /**
+   * Quién abrió esta subida: `user:<id>` o `guest:<token>`.
+   *
+   * `uploadedBy` no sirve para esto: es un nombre para mostrar, lo escribe quien
+   * sube y puede repetirse o estar vacío. Esto es la credencial con la que se
+   * empezó, y es lo que decide quién puede seguir tocándola.
+   *
+   * Opcional porque las sesiones abiertas antes de que esto existiera no lo
+   * llevan. Duran 24 horas; pasadas ésas no queda ninguna sin dueño.
+   */
+  owner?: string;
 }
 
 function entryDir(id: string): string {
@@ -92,6 +103,7 @@ export interface CreateSessionInput {
   ttlHours?: unknown;
   maxDownloads?: unknown;
   uploadedBy?: unknown;
+  owner?: string;
 }
 
 export async function createSession(input: CreateSessionInput): Promise<UploadSession> {
@@ -110,6 +122,7 @@ export async function createSession(input: CreateSessionInput): Promise<UploadSe
     createdAt: now,
     sessionExpiresAt: now + SESSION_TTL,
     uploadedBy: sanitizeUploader(input.uploadedBy),
+    owner: input.owner,
   };
 
   await mkdir(partsDir(id), { recursive: true });
