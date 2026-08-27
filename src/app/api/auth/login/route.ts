@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authorizeUrl, challengeFor, newVerifier, oidcConfig } from "@/lib/oidc";
+import { safeNext, authorizeUrl, challengeFor, newVerifier, oidcConfig } from "@/lib/oidc";
 
 /**
  * GET /api/auth/login — starts signing in against Authentik.
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   // Internal paths only: without this, a link carrying ?next=https://elsewhere
   // would turn signing in into a redirector to wherever an attacker wanted.
   const raw = request.nextUrl.searchParams.get("next") ?? "/";
-  const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+  const next = safeNext(raw);
 
   const response = NextResponse.redirect(
     authorizeUrl(cfg, { state, codeChallenge: challengeFor(verifier) })

@@ -137,3 +137,29 @@ export async function exchangeCode(
 
   return { sub: claims.sub, email: claims.email.toLowerCase(), name: claims.name };
 }
+
+/**
+ * Destino interno seguro tras iniciar sesión.
+ *
+ * La comprobación anterior era `startsWith("/") && !startsWith("//")`, y se
+ * escapaba: **los navegadores normalizan `\` a `/` dentro de las URLs**, así que
+ * `/\evil.com` empieza por una sola barra —pasa el filtro— pero el navegador lo
+ * resuelve como `//evil.com`, o sea protocolo relativo hacia un dominio ajeno.
+ * Iniciar sesión se convertía en un redirector a donde quisiera quien mandara
+ * el enlace. Verificado en producción antes de arreglarlo: la cookie guardaba
+ * `"next":"/\\evil.com"` sin rechistar.
+ *
+ * Los caracteres de control se quitan **antes** de decidir, no después: el
+ * navegador también los descarta al resolver la URL, así que comprobar sobre la
+ * cadena sucia estaría mirando una URL distinta de la que se va a seguir.
+ *
+ * Vive aquí y no en cada ruta porque estaba duplicado, y dos copias de una
+ * comprobación de seguridad acaban divergiendo.
+ */
+export function safeNext(raw: string | undefined | null): string {
+  if (!raw) return "/";
+  const limpio = raw.replace(/[\u0000-\u001F\u007F]/g, "");
+  if (!limpio.startsWith("/")) return "/";
+  if (limpio.startsWith("//") || limpio.startsWith("/\\")) return "/";
+  return limpio;
+}
