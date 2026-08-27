@@ -13,7 +13,11 @@ import Link from "next/link";
  * mientras cada app conserva su propia paleta puertas adentro.
  *
  * Lleva enlaces al resto porque quien usa dos de estas aplicaciones no debería
- * tener que teclear la URL de la otra.
+ * tener que teclear la URL de la otra — pero SOLO si quien opera la instancia
+ * lo pide con KAICORP_FOOTER_LINKS: en un despliegue ajeno, esos enlaces son
+ * publicidad de servicios de otro. Sin la variable queda la atribución sola.
+ * Es un componente de servidor y las páginas son dinámicas (CSP con nonce),
+ * así que la variable se lee en tiempo de ejecución, no de build.
  */
 const SERVICES = [
   { name: "TabUp", url: "https://tabup.kaicorplabs.com", slug: "tabup" },
@@ -24,6 +28,7 @@ const SERVICES = [
 ];
 
 export function KaiCorpFooter({ current }: { current?: string }) {
+  const showLinks = Boolean(process.env.KAICORP_FOOTER_LINKS?.trim());
   return (
     <footer
       className="mt-auto border-t px-4 py-5 sm:px-6"
@@ -47,24 +52,26 @@ export function KaiCorpFooter({ current }: { current?: string }) {
           </span>
         </Link>
 
-        <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
-          {SERVICES.map((s) =>
-            s.slug === current ? (
-              <span key={s.slug} aria-current="page" style={{ color: "var(--kc-text-3)" }}>
-                {s.name}
-              </span>
-            ) : (
-              <a
-                key={s.slug}
-                href={s.url}
-                className="transition-colors hover:opacity-100"
-                style={{ color: "var(--kc-text-2)" }}
-              >
-                {s.name}
-              </a>
-            )
-          )}
-        </nav>
+        {showLinks && (
+          <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
+            {SERVICES.map((s) =>
+              s.slug === current ? (
+                <span key={s.slug} aria-current="page" style={{ color: "var(--kc-text-3)" }}>
+                  {s.name}
+                </span>
+              ) : (
+                <a
+                  key={s.slug}
+                  href={s.url}
+                  className="transition-colors hover:opacity-100"
+                  style={{ color: "var(--kc-text-2)" }}
+                >
+                  {s.name}
+                </a>
+              )
+            )}
+          </nav>
+        )}
       </div>
     </footer>
   );

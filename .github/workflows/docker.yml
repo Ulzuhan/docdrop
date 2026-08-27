@@ -80,6 +80,10 @@ jobs:
           # digests en un manifiesto.
           platforms: linux/amd64
           push: true
+          # Attestations: procedencia del build y SBOM, verificables con
+          # `gh attestation verify` antes de desplegar.
+          provenance: mode=max
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Layer cache in the registry, so later builds do not reinstall
