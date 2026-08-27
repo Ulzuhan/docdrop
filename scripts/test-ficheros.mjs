@@ -119,8 +119,13 @@ console.log("\nUna subida lenta no para a las demás");
 //
 // El umbral tiene margen de sobra: con el arreglo puesto la rápida tarda unos 16 ms
 // y la lenta unos 3,5 segundos. Cualquier valor entre medias sirve.
+// Trozos pequeños a propósito. Esta suite corre con una cuota de 1 MiB para poder
+// probar el desbordamiento más abajo, y lo que suba esta prueba se queda ocupando
+// sitio: con 64 KB por trozo se comía 384 KB de ese millón. No llegó a romper
+// nada, pero acoplar dos pruebas por el espacio que dejan es pedir un fallo
+// intermitente más adelante.
 const TROZOS = 6;
-const POR_TROZO = 64 * 1024;
+const POR_TROZO = 8 * 1024;
 const goteo = (trozos, msEntre) =>
   new ReadableStream({
     async pull(c) {

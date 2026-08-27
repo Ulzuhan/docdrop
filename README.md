@@ -406,7 +406,7 @@ working defaults.
 | `DOCDROP_OIDC_PUBLIC_BASE` | — | **Required.** Where the browser is sent |
 | `DOCDROP_OIDC_INTERNAL_BASE` | public base | Where the server talks to the provider, if that differs |
 | `DOCDROP_OIDC_TIMEOUT_MS` | 10000 | Timeout for token and userinfo calls |
-| `DOCDROP_PUBLIC_HOST` | unset | Nombre público con el que se comprueba el origen. Sin poner, se usa el `Host` que llega, que es lo correcto detrás de un túnel que lo conserva. Sólo hace falta si el proxy lo reescribe con un nombre interno. |
+| `DOCDROP_PUBLIC_HOST` | unset | Public hostname the origin check compares against. Unset, the incoming `Host` is used, which is right behind a tunnel that preserves it — verified. Only needed behind a proxy that rewrites `Host` with an internal name. |
 
 ## Security
 \nThe complete Internet-facing threat model, findings, deployment requirements and verification evidence are in [the security and infrastructure audit](docs/SECURITY-AUDIT.md).

@@ -66,6 +66,17 @@ arrancar() {
   # Almacén aparte, y no el de verdad. Sin esto cada tirada de pruebas dejaba sus
   # secretos mezclados con los de la gente, en el mismo directorio y con la misma
   # limpieza automática pasándoles por encima.
+  # Se arranca con el MISMO lanzador que usa producción, no con `next start`.
+  #
+  # Con `output: "standalone"` se construyen dos artefactos: `.next`, que es lo que
+  # serviría `next start`, y `.next/standalone`, que es lo que arranca el servicio
+  # de verdad a través de `scripts/start.js`. Probar el primero es probar algo que
+  # nadie ejecuta, y el paso de preparación poda ficheros del segundo.
+  #
+  # OJO con este bloque: las asignaciones van encadenadas con `\`, y meter un
+  # comentario entre medias rompe la continuación **en silencio** — el proceso
+  # arranca igual, pero sin ninguna de las variables. Pasó: la cuota de pruebas no
+  # llegaba, la suite fallaba, y parecía un fallo del producto.
   DOCDROP_DATA_DIR="$ALMACEN" \
     DOCDROP_MAX_TOTAL_BYTES="$max_total" \
     DOCDROP_SESSION_SECRET="$DOCDROP_SESSION_SECRET" \
@@ -75,7 +86,7 @@ arrancar() {
     DOCDROP_OIDC_PUBLIC_BASE="http://127.0.0.1:9999" \
     DOCDROP_OIDC_INTERNAL_BASE="http://127.0.0.1:9999" \
     DOCDROP_OIDC_APP_SLUG=docdrop \
-    ./node_modules/.bin/next start -p "$PUERTO" >"$LOG" 2>&1 &
+    PORT="$PUERTO" node scripts/start.js >"$LOG" 2>&1 &
   servidor=$!
 
   for _ in $(seq 1 90); do
