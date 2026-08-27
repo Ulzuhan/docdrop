@@ -337,7 +337,7 @@ npm test                        # all three suites
 ./scripts/run-suites.sh acceso  # just one
 ```
 
-101 checks in three suites, no dependencies and no test framework. Each suite gets a
+109 checks in three suites, no dependencies and no test framework. Each suite gets a
 server the script starts itself, with **its own data directory** — never the real
 one. That directory is exported rather than merely handed to the server, and the
 difference is not cosmetic: while it was not, the suites seeded their user records
@@ -348,7 +348,7 @@ was looking somewhere else.
 `test-upload` — 18 checks over the upload protocol: chunking, resuming, idempotency,
 checksums, invalid indexes and limits.
 
-`test-acceso` — 39 checks covering who can do what and cross-origin simple POSTs. The three kinds of visitor are not the same door: an
+`test-acceso` — 45 checks covering who can do what and cross-origin simple POSTs. The three kinds of visitor are not the same door: an
 account sees the whole listing and can delete anything (deliberate — this is a shared
 household drop box, and sign-ups are approved by a person), a guest link uploads and
 nothing else, and anybody with a link can download.
@@ -359,7 +359,7 @@ normal case — the second used to write chunk 0 of the file the first was uploa
 read its document name, complete it and cancel it. The worst part is not the
 nuisance: it is that the file that arrives is not the one that was sent.
 
-`test-ficheros` — 44 checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
+`test-ficheros` — 46 checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
 auto-destruct real, identifiers coming from the URL, and request bodies that do not
 parse.
 
@@ -406,6 +406,7 @@ working defaults.
 | `DOCDROP_OIDC_PUBLIC_BASE` | — | **Required.** Where the browser is sent |
 | `DOCDROP_OIDC_INTERNAL_BASE` | public base | Where the server talks to the provider, if that differs |
 | `DOCDROP_OIDC_TIMEOUT_MS` | 10000 | Timeout for token and userinfo calls |
+| `DOCDROP_PUBLIC_HOST` | unset | Nombre público con el que se comprueba el origen. Sin poner, se usa el `Host` que llega, que es lo correcto detrás de un túnel que lo conserva. Sólo hace falta si el proxy lo reescribe con un nombre interno. |
 
 ## Security
 \nThe complete Internet-facing threat model, findings, deployment requirements and verification evidence are in [the security and infrastructure audit](docs/SECURITY-AUDIT.md).
