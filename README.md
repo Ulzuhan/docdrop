@@ -47,7 +47,8 @@ docker compose up -d
 
 Uploads live in the `/data` volume, so replacing the container never loses them.
 The image runs as an unprivileged user, ships a healthcheck, and is built for
-`linux/amd64` and `linux/arm64`.
+`linux/amd64`. (arm64 is deliberately not built: under QEMU a Next.js build takes
+hours; the day it is wanted, the way is a native-arm runner matrix, not emulation.)
 
 `:latest` is the most recent release. Pin `:1.0.1` if you would rather decide when
 to move, or `:1.0` / `:1` to take patches automatically. `:main` is whatever is on
@@ -407,9 +408,10 @@ working defaults.
 | `DOCDROP_OIDC_INTERNAL_BASE` | public base | Where the server talks to the provider, if that differs |
 | `DOCDROP_OIDC_TIMEOUT_MS` | 10000 | Timeout for token and userinfo calls |
 | `DOCDROP_PUBLIC_HOST` | unset | Public hostname the origin check compares against. Unset, the incoming `Host` is used, which is right behind a tunnel that preserves it — verified. Only needed behind a proxy that rewrites `Host` with an internal name. |
+| `DOCDROP_ENROLL_URL` | unset | Where the landing's "Request an account" button sends people — your provider's self-service enrollment flow, if it has one. Unset, the button is not rendered and the landing only offers sign-in. |
 
 ## Security
-\nThe complete Internet-facing threat model, findings, deployment requirements and verification evidence are in [the security and infrastructure audit](docs/SECURITY-AUDIT.md).
+The complete Internet-facing threat model, findings, deployment requirements and verification evidence are in [the security and infrastructure audit](docs/SECURITY-AUDIT.md).
 
 Written on the assumption that it may be exposed to the internet through a tunnel
 that provides no WAF and no filtering of its own.

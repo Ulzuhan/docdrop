@@ -11,6 +11,12 @@ import { SiteHeader } from "@/components/site-header";
  * be useful.
  */
 export function Landing() {
+  // De dónde se pide cuenta, si es que hay dónde. Antes era nuestro flujo de
+  // alta escrito a mano: cada despliegue ajeno mostraba un botón hacia el
+  // proveedor de identidad de otro. Sin la variable, el botón no existe y la
+  // portada solo ofrece entrar — que es lo honesto cuando las altas las
+  // gestiona quien opera la instancia por otro canal.
+  const enrollUrl = process.env.DOCDROP_ENROLL_URL?.trim() || null;
   return (
     <>
       <SiteHeader
@@ -44,15 +50,19 @@ export function Landing() {
               </p>
 
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
-                <Button size="lg" className="h-12 px-7 text-base" render={<Link href="https://auth.kaicorplabs.com/if/flow/enroll-docdrop/">Request an account</Link>} />
+                {enrollUrl && (
+                  <Button size="lg" className="h-12 px-7 text-base" render={<Link href={enrollUrl}>Request an account</Link>} />
+                )}
                 <Button size="lg" variant="outline" className="h-12 px-7 text-base" render={<Link href="/api/auth/login">Sign in</Link>} />
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Got a guest link instead? Open it — it works without an account.
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Already have a KaiCorp Labs account? Use the same button — it asks for access to this one.
-              </p>
+              {enrollUrl && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Already have an account elsewhere in this family of services? Use the same button — it asks for access to this one.
+                </p>
+              )}
             </div>
 
             <DemoCard />
@@ -95,7 +105,13 @@ export function Landing() {
           <Button
             size="lg"
             className="mt-7 h-12 px-7 text-base"
-            render={<Link href="https://auth.kaicorplabs.com/if/flow/enroll-docdrop/">Request an account</Link>}
+            render={
+              enrollUrl ? (
+                <Link href={enrollUrl}>Request an account</Link>
+              ) : (
+                <Link href="/api/auth/login">Sign in</Link>
+              )
+            }
           />
         </section>
       </main>
