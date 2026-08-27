@@ -26,6 +26,8 @@ export interface OidcConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  /** Slug de la aplicación en el proveedor. Solo lo usa el cierre de sesión. */
+  appSlug: string;
 }
 
 export function oidcConfig(): OidcConfig | null {
@@ -35,8 +37,14 @@ export function oidcConfig(): OidcConfig | null {
   const internalBase = (process.env.DOCDROP_OIDC_INTERNAL_BASE ?? "http://127.0.0.1:9100").replace(/\/+$/, "");
   const redirectUri = process.env.DOCDROP_OIDC_REDIRECT_URI?.trim();
 
+  // El cierre de sesión de Authentik cuelga del slug con el que se dio de alta
+  // la aplicación, y ese slug lo elige quien la despliega. Estaba escrito a mano:
+  // correcto aquí, roto para cualquiera que la registre con otro nombre. El
+  // valor por defecto mantiene el comportamiento actual.
+  const appSlug = (process.env.DOCDROP_OIDC_APP_SLUG ?? "docdrop").trim().replace(/^\/+|\/+$/g, "");
+
   if (!clientId || !clientSecret || !redirectUri) return null;
-  return { publicBase, internalBase, clientId, clientSecret, redirectUri };
+  return { publicBase, internalBase, clientId, clientSecret, redirectUri, appSlug };
 }
 
 /** With no configuration there is no way in: the app cannot let anybody through. */
@@ -72,7 +80,7 @@ export function endSessionUrl(cfg: OidcConfig): string {
   // Sin él, el proveedor cierra la sesión y deja al usuario en la pantalla
   // de entrada de KaiCorp Labs, que pide credenciales: exactamente la señal
   // de que ha salido de verdad.
-  return `${cfg.publicBase}${APP_PATH}/docdrop/end-session/`;
+  return `${cfg.publicBase}${APP_PATH}/${cfg.appSlug}/end-session/`;
 }
 
 // ─── PKCE ───────────────────────────────────────────────────────────

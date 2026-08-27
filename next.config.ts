@@ -27,10 +27,14 @@ const nextConfig: NextConfig = {
 
   // Pins the workspace root to this directory. Without it, a stray lockfile higher
   // up the tree makes Next infer the wrong root and trace far more than it should.
-  // A relative path avoids the filesystem call that would pull the config into the
-  // trace itself.
+  //
+  // Absoluta. Un comentario anterior sostenía que la ruta relativa evitaba que
+  // este fichero entrara en el trazado; medido en esta versión de Next, ya no es
+  // cierto — el aviso de NFT sale con las dos. Lo que sí cambia es que la
+  // relativa añade encima un "turbopack.root should be absolute": dos avisos
+  // frente a uno.
   turbopack: {
-    root: ".",
+    root: import.meta.dirname,
   },
 
   // Do not advertise the server technology to whoever scans it.
