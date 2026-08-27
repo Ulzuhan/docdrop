@@ -330,13 +330,36 @@ browser will not allow installing or sharing.
 ## Tests
 
 ```bash
-npm run start &
-npm run test:upload
+npm run build
+npm test                        # all three suites
+./scripts/run-suites.sh acceso  # just one
 ```
 
-18 checks over the upload protocol: chunking, resuming, idempotency, checksums,
-invalid indexes and limits. No dependencies and no test framework — it runs against a
-live server and cleans up after itself.
+95 checks in three suites, no dependencies and no test framework. Each suite gets a
+server the script starts itself, with **its own data directory** — never the real
+one. That directory is exported rather than merely handed to the server, and the
+difference is not cosmetic: while it was not, the suites seeded their user records
+into the production store while the server looked in the temporary one. Two test
+accounts ended up mixed in with real ones, and the suites failed because each side
+was looking somewhere else.
+
+`test-upload` — 18 checks over the upload protocol: chunking, resuming, idempotency,
+checksums, invalid indexes and limits.
+
+`test-acceso` — who can do what. The three kinds of visitor are not the same door: an
+account sees the whole listing and can delete anything (deliberate — this is a shared
+household drop box, and sign-ups are approved by a person), a guest link uploads and
+nothing else, and anybody with a link can download.
+
+And a fourth thing, which is what was missing: **having access to upload is not the
+same as owning a particular upload**. With two guest links — one per person, the
+normal case — the second used to write chunk 0 of the file the first was uploading,
+read its document name, complete it and cancel it. The worst part is not the
+nuisance: it is that the file that arrives is not the one that was sent.
+
+`test-ficheros` — the life of a file: download by link, the download cap that makes
+auto-destruct real, identifiers coming from the URL, and request bodies that do not
+parse.
 
 ---
 
