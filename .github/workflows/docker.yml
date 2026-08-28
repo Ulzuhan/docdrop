@@ -64,7 +64,8 @@ jobs:
             type=ref,event=branch
             type=sha,format=short,enable=${{ !startsWith(github.ref, 'refs/tags/v') }}
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           # Solo amd64. Construir arm64 aquí significa hacerlo bajo QEMU, y un
@@ -90,3 +91,25 @@ jobs:
           # dependencies from scratch.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Un nombre de imagen tiene que ir en minúsculas y github.repository
+      # conserva la U del usuario; metadata-action ya lo normaliza para los
+      # tags, esto lo normaliza para el escáner.
+      - id: ref
+        run: echo "ref=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # La puerta: la imagen recién publicada, escaneada capa a capa (SO base,
+      # npm y pip incluidos) contra las bases de CVEs, y el workflow en ROJO si
+      # hay altas o críticas CON arreglo disponible. Se escanea tras publicar y
+      # no antes a propósito: el exportador local no admite las attestations, y
+      # en este flujo nada se despliega sin mirar el workflow — un release en
+      # rojo no se ancla en producción. ignore-unfixed porque sin parche no hay
+      # acción posible, y un rojo permanente solo enseña a ignorar el color.
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.ref.outputs.ref }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+        env:
+          TRIVY_TIMEOUT: 20m
