@@ -105,7 +105,7 @@ jobs:
       # en este flujo nada se despliega sin mirar el workflow — un release en
       # rojo no se ancla en producción. ignore-unfixed porque sin parche no hay
       # acción posible, y un rojo permanente solo enseña a ignorar el color.
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ steps.ref.outputs.ref }}@${{ steps.build.outputs.digest }}
           severity: CRITICAL,HIGH

@@ -39,7 +39,15 @@ ENV NODE_ENV=production \
 
 # Unprivileged user. The image never runs as root: a container escape through the
 # application should not land on a root shell.
-RUN addgroup --system --gid 1001 docdrop \
+#
+# apk upgrade: the base image lags behind Alpine's security fixes (libcrypto,
+# measured by the weekly Trivy scan). And npm/npx/yarn are REMOVED: the runtime
+# runs `node server.js` and nothing else — the npm CLI ships its own bundled
+# node_modules (tar, brace-expansion…) that show up in scanners and would never
+# be used. Less surface, smaller image.
+RUN apk -U upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+ && addgroup --system --gid 1001 docdrop \
  && adduser --system --uid 1001 --ingroup docdrop docdrop \
  && mkdir -p /data && chown docdrop:docdrop /data
 
