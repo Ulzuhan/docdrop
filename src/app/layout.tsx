@@ -11,12 +11,42 @@ const display = Space_Grotesk({ variable: "--font-display", weight: ["500", "700
 const sans = Inter({ variable: "--font-sans", weight: ["400", "500"], subsets: ["latin"] });
 const mono = JetBrains_Mono({ variable: "--font-mono", weight: ["400", "500"], subsets: ["latin"] });
 
+/**
+ * The public origin, for canonical and social previews.
+ *
+ * It comes from DOCDROP_PUBLIC_HOST, which already exists for the origin check:
+ * no new variable, and whoever deploys this on their own domain gets their own
+ * canonical without touching code. Unset, none is emitted — Next would resolve
+ * relative URLs against localhost, and a canonical pointing there is worse than
+ * no canonical at all.
+ */
+const publicHost = process.env.DOCDROP_PUBLIC_HOST?.trim();
+const base = publicHost ? new URL(`https://${publicHost}`) : undefined;
+
+const TITLE = "DocDrop — send the whole file, then let it disappear";
+const DESCRIPTION =
+  "Multi-gigabyte transfers with nothing recompressed: uploads resume after a dropped connection, and links delete themselves when you say so. Self-hosted and open source.";
+
+/**
+ * `noindex` used to sit here, on the whole application, back when the service
+ * was reachable through a temporary tunnel. It kept the public landing out of
+ * every index too. The flag now lives where it belongs — on `/d/[id]` and
+ * `/guest/[token]`, whose URLs carry a credential — and this page, which
+ * explains the product to strangers, is indexable.
+ */
 export const metadata: Metadata = {
-  title: "DocDrop — Share files instantly",
-  description: "Upload a file, share the link. It self-destructs.",
-  // The service may become reachable from the internet through a temporary tunnel:
-  // at least keep it out of search indexes.
-  robots: { index: false, follow: false },
+  ...(base ? { metadataBase: base, alternates: { canonical: "/" } } : {}),
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    type: "website",
+    siteName: "DocDrop",
+    locale: "en_US",
+    ...(base ? { url: "/", images: [{ url: "/og.jpg", width: 760, height: 475, alt: "DocDrop: large files uploading, each with its expiry" }] } : {}),
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 export const viewport: Viewport = {

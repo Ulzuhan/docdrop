@@ -43,6 +43,10 @@ const nextConfig: NextConfig = {
   // Standalone output: production deploys only .next/standalone, with no source and
   // no dev dependencies. Less surface than copying the whole project.
   output: "standalone",
+  // Las subidas nunca dentro del artefacto. `prepare-standalone.js` ya barría lo
+  // que se colara; esto impide que se cuele. Mismo criterio que sus hermanos.
+  outputFileTracingRoot: import.meta.dirname,
+  outputFileTracingExcludes: { "**": ["./.docdrop-uploads/**/*"] },
 
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
