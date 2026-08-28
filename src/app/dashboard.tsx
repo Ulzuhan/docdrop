@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, FileUp, Flame, FolderUp, LogOut, X } from "lucide-react";
+import { Download, FileUp, Flame, FolderUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SiteHeader } from "@/components/site-header";
+import { KaiCorpAccountMenu } from "@/components/kaicorp-account-menu";
 import { FileRow, type FileInfo } from "@/components/file-row";
 import { UploadQueue, useUploadQueue } from "@/components/upload-queue";
 import { UploaderNameField } from "@/components/uploader-name-field";
@@ -31,7 +32,12 @@ const DOWNLOAD_OPTIONS = [
  * which shows the landing page instead when there is no session — it does not
  * redirect anywhere, and `/login` does not exist in this app.
  */
-export function Dashboard() {
+/**
+ * `email` y `accountUrl` llegan del servidor porque el menú de cuenta es cromado común:
+ * aquí, de las cinco aplicaciones, era donde peor estaba —un icono de salir suelto en la
+ * cabecera, sin decir siquiera de quién era la sesión—.
+ */
+export function Dashboard({ email, accountUrl }: { email: string; accountUrl: string | null }) {
   const [isDragging, setIsDragging] = useState(false);
   const [ttl, setTtl] = useState(24);
   const [maxDownloads, setMaxDownloads] = useState(0);
@@ -190,23 +196,7 @@ export function Dashboard() {
       <SiteHeader
         storage={storage}
         actions={
-          authEnabled ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Log out"
-              className="size-10 rounded-full text-muted-foreground hover:text-foreground"
-              onClick={async () => {
-                const res = await fetch("/api/auth/logout", { method: "POST" });
-                // Antes iba a /login, que en DocDrop no existe: cerrar sesión
-                // terminaba en un 404. Ahora se sigue al proveedor.
-                const { next } = await res.json().catch(() => ({ next: "/" }));
-                window.location.href = next ?? "/";
-              }}
-            >
-              <LogOut className="size-[18px]" />
-            </Button>
-          ) : null
+          authEnabled ? <KaiCorpAccountMenu email={email} accountUrl={accountUrl} /> : null
         }
       />
 

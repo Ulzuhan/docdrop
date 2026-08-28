@@ -1,6 +1,7 @@
 import { currentUser } from "@/lib/auth";
 import { Dashboard } from "./dashboard";
 import { Landing } from "@/components/landing";
+import { accountUrl } from "@/lib/oidc";
 
 /**
  * The front door, decided on the server: a stranger gets the landing page and
@@ -16,5 +17,5 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const user = await currentUser();
   if (!user) return <Landing />;
-  return <Dashboard />;
+  return <Dashboard email={user.email} accountUrl={accountUrl()} />;
 }

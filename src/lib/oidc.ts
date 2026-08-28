@@ -186,3 +186,24 @@ export function safeNext(raw: string | undefined | null): string {
   if (limpio.startsWith("//") || limpio.startsWith("/\\")) return "/";
   return limpio;
 }
+
+/**
+ * La página de la cuenta en el proveedor: correo, contraseña, segundo factor, sesiones.
+ *
+ * Nada de eso lo lleva DocDrop, y hasta ahora no había ninguna puerta hacia ella: en la
+ * cabecera solo estaba el icono de salir. Sin la variable no se enlaza a ningún sitio;
+ * la ruta es cosa de cada proveedor —Authentik la sirve en `/if/user/`—.
+ */
+export function accountUrl(): string | null {
+  const raw = process.env.DOCDROP_ACCOUNT_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    const loopback = ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(loopback && url.protocol === "http:")) return null;
+    if (url.username || url.password) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
