@@ -349,10 +349,20 @@ was looking somewhere else.
 `test-upload` — 18 checks over the upload protocol: chunking, resuming, idempotency,
 checksums, invalid indexes and limits.
 
-`test-acceso` — 45 checks covering who can do what and cross-origin simple POSTs. The three kinds of visitor are not the same door: an
-account sees the whole listing and can delete anything (deliberate — this is a shared
-household drop box, and sign-ups are approved by a person), a guest link uploads and
-nothing else, and anybody with a link can download.
+`test-acceso` — 61 checks covering who can do what and cross-origin simple POSTs. The
+three kinds of visitor are not the same door: an account sees **its own files** and can
+delete only those, a guest link uploads and nothing else, and anybody with a link can
+download.
+
+This used to read "an account sees the whole listing and can delete anything
+(deliberate — this is a shared household drop box)", and that sentence is worth keeping
+as a warning. The premise held while every account belonged to the same household; the
+first real second user broke it — the operator found the other person's file sitting in
+his own dashboard, download link and delete button included. Being let in and sharing a
+room are different things. Files have an `owner` now (`user:<id>`); a file uploaded
+through a guest link belongs to whoever minted the link; guest links themselves are
+listed and revocable only by their creator. Files and links from before ownership are
+shown to nobody — their direct links still work, and expiry retires them on its own.
 
 And a fourth thing, which is what was missing: **having access to upload is not the
 same as owning a particular upload**. With two guest links — one per person, the

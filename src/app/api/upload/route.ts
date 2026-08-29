@@ -24,6 +24,7 @@ import {
   guestFromRequest,
   recordGuestUpload,
   requireUploadAccess,
+  ownerForGuestToken,
 } from "@/lib/guest";
 import { currentUser } from "@/lib/auth";
 import { displayName } from "@/lib/users";
@@ -163,6 +164,9 @@ export async function POST(request: NextRequest) {
               ? decodeURIComponent(request.headers.get("x-uploaded-by")!)
               : undefined
           ) ?? guest?.label,
+      // La credencial, no la etiqueta: lo subido por cuenta es de esa cuenta, y
+      // lo subido por un enlace de invitado, de quien emitió el enlace.
+      owner: account ? `user:${account.id}` : guest ? await ownerForGuestToken(guest.token) : undefined,
     };
     await writeMeta(meta);
     if (guest) await recordGuestUpload(guest.token);

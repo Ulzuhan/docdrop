@@ -49,6 +49,21 @@ export interface FileMeta {
   /** Who uploaded it. An informational label, not a verified identity. */
   uploadedBy?: string;
   /**
+   * De quién es: `user:<id>`. La credencial de verdad, no la etiqueta de arriba.
+   *
+   * No existía, y su ausencia era el fallo de fondo de esta herramienta: nació
+   * como carpeta compartida de un solo operador —la cuenta era la puerta, no el
+   * inquilino— y al llegar las cuentas múltiples (2026-08-25) la puerta pasó a
+   * ser de varios pero la habitación siguió siendo una. Cualquier cuenta veía,
+   * descargaba y podía borrar los ficheros de todas las demás desde el panel.
+   * Lo encontró el operador el primer día que hubo un segundo usuario real.
+   *
+   * Un fichero subido por un enlace de invitado pertenece a quien creó el
+   * enlace. Uno sin dueño (anterior a este campo) no se enseña a nadie: su
+   * enlace directo sigue funcionando y la caducidad lo retira sola.
+   */
+  owner?: string;
+  /**
    * Tombstone marker: the content is already deleted, but the meta.json is kept for
    * a while so we can answer "this expired / ran out of downloads" instead of a
    * "not found" that is indistinguishable from a mistyped link.

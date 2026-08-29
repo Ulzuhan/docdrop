@@ -26,10 +26,16 @@ const bytes = await bajada.arrayBuffer();
 check("y llega entero", bytes.byteLength, contenido.length);
 check("con el nombre puesto", /filename="documento.txt"/.test(bajada.headers.get("content-disposition") ?? ""), true);
 
-// Un buzón compartido: quien tiene cuenta ve y borra todo. Es a propósito —las
-// altas las aprueba una persona— y se comprueba para que un cambio de idea se
-// note aquí y no en producción.
-check("otra cuenta también lo ve en la lista", (await api("/api/files", { cookie: b })).body.files.some((f) => f.id === id), true);
+// Aquí decía «un buzón compartido: quien tiene cuenta ve y borra todo. Es a
+// propósito y se comprueba para que un cambio de idea se note aquí y no en
+// producción». El cambio de idea llegó, y llegó por producción: el primer
+// segundo usuario real subió un fichero y el operador lo vio en su panel. La
+// premisa —«las altas las aprueba una persona, luego todo el que entra es de
+// confianza»— confundía dejar entrar con compartir habitación. Ahora cada
+// cuenta ve lo suyo, y esta comprobación fija el modelo nuevo con la misma
+// intención que la vieja fijaba el anterior.
+check("otra cuenta NO lo ve en la lista", (await api("/api/files", { cookie: b })).body.files.some((f) => f.id === id), false);
+check("pero el enlace directo le funciona igual: el enlace es el permiso", (await fetch(`${BASE}/api/download/${id}`)).status, 200);
 
 console.log("\nLa autodestrucción");
 const dos = await subir(Buffer.from("se borra a la segunda"), { cookie: a, nombre: "dos.txt", extra: { "x-max-downloads": "2" } });

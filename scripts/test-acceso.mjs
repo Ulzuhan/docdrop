@@ -227,4 +227,58 @@ check("y la cierra", cerrada.status, 200);
 const bajada = await fetch(`${BASE}/api/download/${cerrada.body.id}`);
 check("y el fichero baja entero", (await bajada.arrayBuffer()).byteLength, TAM);
 
+/**
+ * El inquilino, no solo la puerta.
+ *
+ * Esto no existía y era el fallo de fondo de la herramienta: cualquier cuenta
+ * veía, podía descargar desde el panel y podía borrar los ficheros de todas las
+ * demás — y lo mismo con los enlaces de invitado. Lo encontró el operador el
+ * primer día que hubo un segundo usuario real: el fichero del otro, en su
+ * panel. Estas comprobaciones son las que faltaban.
+ */
+console.log("\nCada cuenta ve lo suyo, y solo lo suyo");
+const cookieA = sesion("usuario-a");
+const cookieB = sesion("usuario-b");
+
+const deA = await subir("contenido de a", { cookie: cookieA, nombre: "de-a.txt" });
+check("a sube", deA.status, 200);
+const deB = await subir("contenido de b", { cookie: cookieB, nombre: "de-b.txt" });
+check("b sube", deB.status, 200);
+
+const listaA = await api("/api/files", { cookie: cookieA });
+const listaB = await api("/api/files", { cookie: cookieB });
+const nombresA = listaA.body.files.map((f) => f.originalName);
+const nombresB = listaB.body.files.map((f) => f.originalName);
+check("a ve su fichero", nombresA.includes("de-a.txt"), true);
+check("a NO ve el de b", nombresA.includes("de-b.txt"), false);
+check("b ve el suyo", nombresB.includes("de-b.txt"), true);
+check("b NO ve el de a", nombresB.includes("de-a.txt"), false);
+
+// Borrar lo ajeno contesta lo mismo que borrar lo inexistente: nada que sondear.
+const borraAjeno = await api(`/api/files/${deA.body.id}`, { cookie: cookieB, metodo: "DELETE" });
+check("b no puede borrar el fichero de a", borraAjeno.status, 404);
+const sigue = await fetch(`${BASE}/api/download/${deA.body.id}`);
+check("y el fichero de a sigue vivo", sigue.status, 200);
+check("a sí borra el suyo", (await api(`/api/files/${deA.body.id}`, { cookie: cookieA, metodo: "DELETE" })).status, 200);
+
+// El enlace directo sigue siendo la capacidad: quien lo tiene, descarga. Eso no
+// cambia — lo que cambia es que el panel ya no regala los enlaces de todos.
+console.log("\nLos enlaces de invitado también son de quien los emite");
+const enlaceA = await crearEnlace(cookieA);
+check("a emite un enlace", enlaceA.status, 201);
+const tokenA = enlaceA.body.link.token;
+
+const enlacesDeB = await api("/api/guest-links", { cookie: cookieB });
+check("b no ve el enlace de a", enlacesDeB.body.links.some((l) => l.token === tokenA), false);
+check("b no puede revocar el enlace de a", (await api(`/api/guest-links/${tokenA}`, { cookie: cookieB, metodo: "DELETE" })).status, 404);
+
+// Y lo subido por el enlace aparece en el panel de quien lo repartió, no en otro.
+const porInvitado = await subir("subida de un invitado", { cabeceras: invitado(tokenA), nombre: "invitado.txt" });
+check("el invitado sube por el enlace de a", porInvitado.status, 200);
+const panelA = await api("/api/files", { cookie: cookieA });
+const panelB = await api("/api/files", { cookie: cookieB });
+check("a ve lo que entró por su enlace", panelA.body.files.some((f) => f.originalName === "invitado.txt"), true);
+check("b no lo ve", panelB.body.files.some((f) => f.originalName === "invitado.txt"), false);
+check("a revoca su propio enlace", (await api(`/api/guest-links/${tokenA}`, { cookie: cookieA, metodo: "DELETE" })).status, 200);
+
 resumen();

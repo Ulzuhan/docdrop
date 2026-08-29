@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteEntry, isValidId, readMeta } from "@/lib/store";
-import { requireSession } from "@/lib/auth";
+import { currentUser, requireSession } from "@/lib/auth";
 
 /**
  * DELETE /api/files/[id] — deletes a file before it expires.
@@ -19,6 +19,15 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/files/[i
 
   const meta = await readMeta(id);
   if (!meta) {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
+  }
+
+  // Solo su dueño borra, y un fichero ajeno contesta lo mismo que uno que no
+  // existe: este endpoint no debe servir para comprobar qué ids hay. Antes
+  // bastaba la sesión, así que cualquier cuenta podía borrar lo de todas.
+  // Un fichero sin dueño no lo borra nadie desde aquí: caduca solo.
+  const me = await currentUser();
+  if (!meta.owner || meta.owner !== `user:${me?.id}`) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 

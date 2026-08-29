@@ -20,6 +20,7 @@
  * On completion <id>/meta.json appears and session.json and parts/ go away, so the
  * entry becomes a regular file for the rest of the application.
  */
+import { ownerForGuestToken } from "@/lib/guest";
 import { existsSync } from "fs";
 import { mkdir, readdir, readFile, rm, stat, truncate, writeFile } from "fs/promises";
 import { join } from "path";
@@ -199,6 +200,13 @@ export async function completeSession(session: UploadSession): Promise<CompleteR
     downloadCount: 0,
     maxDownloads: session.maxDownloads,
     uploadedBy: session.uploadedBy,
+    // El dueño de la sesión, resuelto al terminar: `user:<id>` se queda tal
+    // cual; `guest:<token>` pasa a ser de quien emitió el enlace. Una sesión
+    // sin dueño (de antes de que lo llevaran) deja el fichero sin dueño: su
+    // enlace funciona, el panel no lo enseña a nadie, la caducidad lo retira.
+    owner: session.owner?.startsWith("guest:")
+      ? await ownerForGuestToken(session.owner.slice("guest:".length))
+      : session.owner,
   };
 
   await writeMeta(meta);

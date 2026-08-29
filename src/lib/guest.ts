@@ -45,6 +45,13 @@ export interface GuestLink {
   expiresAt: number;
   /** Informational counter, updated best-effort (see recordGuestUpload). */
   uploadCount: number;
+  /**
+   * Quién lo emitió (`user.id`). Es lo que hace que un fichero subido por el
+   * enlace aparezca en el panel de quien lo repartió — y de nadie más — y que
+   * nadie pueda listar ni revocar los enlaces de otro. Ausente en los emitidos
+   * antes de este campo: esos no se enseñan a nadie y caducan solos.
+   */
+  createdBy?: string;
 }
 
 // 32 hex chars = 128 bits. Also the path-safety check before join(), like ID_RE
@@ -80,6 +87,7 @@ export function clampLinkTtlHours(raw: unknown): number {
 export async function createGuestLink(input: {
   ttlHours?: unknown;
   label?: unknown;
+  createdBy?: string;
 }): Promise<GuestLink> {
   const now = Date.now();
   const link: GuestLink = {
@@ -88,9 +96,27 @@ export async function createGuestLink(input: {
     createdAt: now,
     expiresAt: now + clampLinkTtlHours(input.ttlHours) * 60 * 60 * 1000,
     uploadCount: 0,
+    createdBy: input.createdBy,
   };
   await writeLink(link);
   return link;
+}
+
+/**
+ * A quién pertenece lo que entre por este enlace: a quien lo emitió.
+ *
+ * Devuelve el `owner` que debe llevar el fichero (`user:<id>`), o undefined si
+ * el enlace es de antes de que los enlaces tuvieran emisor — ese fichero no
+ * será de nadie y no se enseñará a nadie, pero su enlace directo funciona.
+ */
+/** Lectura sin validez: la revocación necesita mirar un enlace aunque ya caducara. */
+export async function readGuestLink(token: string): Promise<GuestLink | null> {
+  return readLink(token);
+}
+
+export async function ownerForGuestToken(token: string): Promise<string | undefined> {
+  const link = await readLink(token).catch(() => null);
+  return link?.createdBy ? `user:${link.createdBy}` : undefined;
 }
 
 /**

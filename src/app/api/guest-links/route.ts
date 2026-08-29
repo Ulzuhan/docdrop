@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonBody } from "@/lib/body";
 import { createGuestLink, listGuestLinks } from "@/lib/guest";
-import { requireSession } from "@/lib/auth";
+import { currentUser, requireSession } from "@/lib/auth";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 /**
@@ -14,7 +14,14 @@ export async function GET() {
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
-  return NextResponse.json({ links: await listGuestLinks() });
+  // Los tuyos, no los de todos. La sesión bastaba y cualquier cuenta veía —y
+  // podía revocar— los enlaces de las demás: mismo fallo de fondo que el
+  // listado de ficheros, la cuenta era la puerta pero no el inquilino. Los
+  // emitidos antes de que los enlaces llevaran emisor no se enseñan a nadie y
+  // caducan solos.
+  const me = await currentUser();
+  const links = (await listGuestLinks()).filter((l) => l.createdBy && l.createdBy === me?.id);
+  return NextResponse.json({ links });
 }
 
 /**
@@ -38,6 +45,9 @@ export async function POST(request: NextRequest) {
   }
   const body: { ttlHours?: unknown; label?: unknown } = cuerpo;
 
-  const link = await createGuestLink(body);
+  // Con su emisor: es lo que hace que lo subido por el enlace aparezca en el
+  // panel de quien lo repartió, y que nadie más pueda listarlo ni revocarlo.
+  const me = await currentUser();
+  const link = await createGuestLink({ ...body, createdBy: me?.id });
   return NextResponse.json({ link }, { status: 201 });
 }
