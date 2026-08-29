@@ -16,7 +16,6 @@ import {
   claveDesdeFragmento,
   descifrarCabecera,
   descifrarFichero,
-  descifrarTrozo,
   cifrarCabecera,
   leerPrefijo,
   nuevaClave,
