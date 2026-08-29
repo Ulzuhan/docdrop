@@ -184,6 +184,17 @@ anything for everyone else.
 
 ---
 
+
+**Losing access takes effect immediately.** `POST /api/auth/backchannel-logout`
+implements OIDC Back-Channel Logout — point the provider at it in the client's
+*Logout URI*. The session here is a signed cookie with no server-side state, so
+there is nothing to delete: the notification records that person on a small
+revocation list (an opaque id and a date, pruned automatically), and their
+cookies stop working from that moment. Sessions also expire on their own after
+DOCDROP_SESSION_TTL_HOURS (12 by default, 24 maximum), which is the bound that
+holds even when no notification arrives — the provider only notifies clients
+whose access token is still alive.
+
 ## End-to-end encryption
 
 Every new upload is encrypted **in the browser**, before the first byte leaves it.

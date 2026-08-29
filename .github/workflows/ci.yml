@@ -50,6 +50,10 @@ jobs:
       # custodio malicioso como adversario. Si esto falla, nada más importa.
       - run: npx vitest run
 
+      # Con un proveedor de mentira que FIRMA de verdad: el aviso de cierre de
+      # sesión no se puede probar de otra forma.
+      - run: npm run test:backchannel
+
       - name: Run the upload-protocol suite against the built server
         run: |
           npm run start &

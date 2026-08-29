@@ -30,6 +30,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { findById, upsertFromIdentity, type DocDropUser } from "@/lib/users";
 import { oidcConfigured, type OidcIdentity } from "@/lib/oidc";
+import { revocadaDespuesDe } from "@/lib/revocaciones";
 
 export const SESSION_COOKIE = "docdrop_session";
 const configuredTtlHours = Number(process.env.DOCDROP_SESSION_TTL_HOURS ?? 12);
@@ -66,8 +67,12 @@ function sign(payload: string, secret: string): string {
 export function createSessionToken(userId: string): string | null {
   const secret = sessionSecret();
   if (!secret) return null;
+  const ahora = Date.now();
+  // `iat` es lo que permite revocar sin guardar sesiones: la lista de
+  // revocación dice desde cuándo dejó de valer lo de alguien, y sin saber
+  // cuándo se emitió esta cookie no se puede comparar. Ver lib/revocaciones.ts.
   const payload = Buffer.from(
-    JSON.stringify({ uid: userId, exp: Date.now() + SESSION_TTL_MS })
+    JSON.stringify({ uid: userId, iat: ahora, exp: ahora + SESSION_TTL_MS })
   ).toString("base64url");
   return `${payload}.${sign(payload, secret)}`;
 }
@@ -89,9 +94,16 @@ export function userIdFromToken(token: string | undefined): string | null {
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
   try {
-    const { uid, exp } = JSON.parse(Buffer.from(payload, "base64url").toString());
+    const { uid, iat, exp } = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (typeof exp !== "number" || exp <= Date.now()) return null;
-    return typeof uid === "string" ? uid : null;
+    if (typeof uid !== "string") return null;
+    // Las cookies emitidas antes de que existiera `iat` se fechan por su
+    // caducidad: se emitieron una vida de sesión antes. Es exacto mientras el
+    // tope no cambie, y en el peor caso revoca de más, que es el lado bueno
+    // por el que equivocarse.
+    const emitida = typeof iat === "number" ? iat : exp - SESSION_TTL_MS;
+    if (revocadaDespuesDe(uid, emitida)) return null;
+    return uid;
   } catch {
     return null;
   }
