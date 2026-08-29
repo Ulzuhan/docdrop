@@ -100,6 +100,38 @@ Found while re-checking that work, and fixed:
   systemd and Compose run unprivileged with read-only code, no added capabilities and
   bounded exposure. The systemd unit also limits memory, tasks and file descriptors.
 
+## Addendum 2026-08-29: end-to-end encryption
+
+New uploads are encrypted in the browser (AES-256-GCM per 4 MiB chunk, WebCrypto)
+with a per-file random 256-bit key that travels only in the URL fragment. The server
+stores ciphertext under the neutral name `encrypted`; real filename, MIME type and
+content live inside the encrypted envelope. This moves the **server operator and
+anyone who compromises the store** from "trusted with content" to "adversary the
+format must resist" — and that adversary is tested, not assumed: the unit suite
+includes byte flips, chunk reordering, truncation on chunk boundaries, extension and
+wrong keys (all must fail closed), and the `test-e2ee` API suite uploads a marker
+and searches the server's own data directory for it and for the real filename.
+
+What encryption does **not** change:
+
+- Metadata stays visible to the server: approximate size, timestamps, expiry,
+  download count, owner. Traffic analysis is out of scope, as before.
+- The `encrypted` flag is self-declared by the client. Lying about it only breaks
+  the download for whoever lied; the server makes no decision of value based on it.
+- Files stored before this change remain plaintext on disk and are served untouched
+  until their own expiry retires them.
+- Keys live in the uploading browser's `localStorage` and in the shared link. An XSS
+  on this origin could read the keyring — the nonce-based CSP is what stands in the
+  way, and it was already load-bearing. The fragment also lands in browser history
+  and in anything the full link is pasted into; that is inherent to key-in-link
+  designs and is the same trade SecretDrop documents.
+- Key loss is file loss. There is no recovery path, by design; the guest flow
+  compensates with an explicit "send this link back" screen, not with escrow.
+
+The retention section above gets stronger, not weaker: a backup of encrypted
+payloads without their keys is ciphertext, so the privacy-first no-backup default
+now fails safe twice.
+
 ## Internet-facing deployment requirements
 
 - Bind DocDrop only to loopback or an internal container network. Terminate TLS at a

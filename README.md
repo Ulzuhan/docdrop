@@ -16,6 +16,8 @@ The problem it was built for: passing a 7 GB GoPro video between phones and lapt
 - No database: files and their metadata live on disk
 - Installable PWA, with support for the mobile "Share" menu
 - Multi-file and whole-folder uploads, chunked and resumable
+- End-to-end encrypted: files are ciphered in the browser and the key travels in
+  the part of the link the server never receives
 - Preview video, audio and images before downloading
 - Download several files at once as a streamed ZIP
 
@@ -179,6 +181,44 @@ anything for everyone else.
 
 ---
 
+## End-to-end encryption
+
+Every new upload is encrypted **in the browser**, before the first byte leaves it.
+What the server stores is ciphertext under the neutral name `encrypted`; the content,
+the real filename and the MIME type are inside the encrypted envelope. The key is
+32 random bytes that travel in the **link's `#fragment`** — the part of a URL a
+browser never sends to any server — so knowing the link *is* holding the key, and
+the server operator cannot open what they host. This is the same deal SecretDrop
+offers for text, applied to files.
+
+How it works, briefly:
+
+- **AES-256-GCM per 4 MiB chunk** via WebCrypto. Nonces are deterministic per chunk
+  index, which is what lets a resumed upload re-encrypt the same chunk into the
+  same bytes: the chunked transport, its checksums and its resume state never learn
+  that encryption exists. Chunk order, truncation and extension are all
+  authenticated — a tampered or cut bulk fails to decrypt rather than yielding a
+  plausible partial file.
+- **The keyring is local.** Keys live in the uploading browser's `localStorage`,
+  nowhere else. That is why your own dashboard shows real filenames (they come
+  from the keyring, not the server) and why another device shows the same files
+  without names. Losing the link and the browser profile loses the file: there is
+  no recovery, by design.
+- **Downloads stream through a service worker.** The page decrypts chunk by chunk
+  and hands bytes to the browser's native download, with backpressure — a
+  multi-gigabyte file never sits whole in memory. Browsers without a controlling
+  worker fall back to in-memory decryption, with a warning above 1.5 GiB.
+- **Guest uploads encrypt too**, which has a human consequence: the key is born in
+  the *guest's* browser, so the finished upload shows a prominent screen telling
+  them to send the full link back to whoever asked for the file — that link holds
+  the only key. Skipping that step makes the file unrecoverable for everyone.
+- **What stays visible to the server**: approximate size, upload time, expiry,
+  download count, and who owns the file. Encrypted files are excluded from the
+  server-side ZIP (it would package unopenable ciphertext) and from previews.
+
+Files uploaded before this existed remain as they were stored; they are served
+untouched and age out through their own expiry.
+
 ## Large uploads
 
 This is where most of the work went, because a multi-gigabyte file hits three
@@ -334,11 +374,12 @@ browser will not allow installing or sharing.
 
 ```bash
 npm run build
-npm test                        # all three suites
+npm test                        # unit tests + all four API suites
 ./scripts/run-suites.sh acceso  # just one
 ```
 
-109 checks in three suites, no dependencies and no test framework. Each suite gets a
+160 checks: 22 unit tests (vitest) over the crypto module, and 138 in four API
+suites with no dependencies and no test framework. Each suite gets a
 server the script starts itself, with **its own data directory** — never the real
 one. That directory is exported rather than merely handed to the server, and the
 difference is not cosmetic: while it was not, the suites seeded their user records
@@ -370,9 +411,17 @@ normal case — the second used to write chunk 0 of the file the first was uploa
 read its document name, complete it and cancel it. The worst part is not the
 nuisance: it is that the file that arrives is not the one that was sent.
 
-`test-ficheros` — 46 checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
+`test-ficheros` — 47 checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
 auto-destruct real, identifiers coming from the URL, and request bodies that do not
 parse.
+
+`test-e2ee` — 12 checks that the encryption's promise holds **on the server's own
+disk**: a marker string is uploaded encrypted and the whole data directory is then
+searched for it and for the real filename (both must be absent), the public info
+endpoint must show only the neutral name, the download must decrypt back to the
+exact bytes, and a wrong key must open nothing. The suite imports the real
+`src/lib/e2ee.ts` (via `--experimental-strip-types`), not a copy — the unit tests
+cover the format's edge cases, this one covers the claim.
 
 ---
 
@@ -443,6 +492,9 @@ that provides no WAF and no filtering of its own.
 - **Uploads are only served inline for types that cannot run scripts** (video, audio,
   images except SVG, PDF). Anything else is forced to `attachment`. Serving arbitrary
   uploads inline from the same origin is what turns a file service into stored XSS.
+- **End-to-end encryption**: content, filename and MIME type are encrypted in the
+  browser (AES-256-GCM, key in the URL fragment); the server stores ciphertext it
+  cannot open. See the section above for the format and its verified properties.
 - **No password is stored here at all**: who may sign in is the identity provider's
   business. The session is an HMAC-SHA256 signed cookie using at least 32 bytes of secret,
   `httpOnly` + `secure` + `sameSite`. Provider-side revocation is bounded by the
