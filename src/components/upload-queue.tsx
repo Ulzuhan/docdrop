@@ -9,6 +9,14 @@ import { CopyLinkButton } from "@/components/copy-link-button";
 import { ShareButton } from "@/components/share-button";
 import { fileEmoji, formatBytes } from "@/lib/format";
 import { uploadFileInChunks, type UploadHandle, type UploadResult } from "@/lib/chunked-upload";
+import {
+  NOMBRE_CIFRADO,
+  TIPO_CIFRADO,
+  apuntarClaveEnVuelo,
+  claveEnVuelo,
+  consolidarClave,
+  fuenteCifrada,
+} from "@/lib/e2ee-client";
 import { getUploaderName } from "@/lib/uploader-name";
 
 type ItemState = "pending" | "uploading" | "done" | "error" | "cancelled";
@@ -129,18 +137,46 @@ export function useUploadQueue({
       update(key, { state: "uploading" });
       void acquireWakeLock();
 
-      const handle = uploadFileInChunks(file, {
-        ttlHours: optionsRef.current.ttlHours,
-        maxDownloads: optionsRef.current.maxDownloads,
-        uploadedBy: getUploaderName() || undefined,
-        onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
-        headers,
-      });
+      /**
+       * Cifrado SIEMPRE, sin interruptor — como SecretDrop. La clave nace aquí,
+       * se apunta al llavero antes del primer byte (una reanudación con clave
+       * perdida produciría un bulto Frankenstein, así que la clave se persiste
+       * primero), y al completar pasa a colgar del id del fichero.
+       *
+       * `fuenteCifrada` es asíncrona (cifra la cabecera), así que el mango se
+       * monta en dos tiempos: la promesa exterior encadena fuente → transporte,
+       * y `abort` se re-apunta al transporte real en cuanto existe.
+       */
+      const ctl: { abort: () => void } = { abort: () => {} };
+      const promesa = (async () => {
+        const clavePrevia = claveEnVuelo(file) ?? undefined;
+        const fuente = await fuenteCifrada(file, clavePrevia);
+        apuntarClaveEnVuelo(file, fuente.fragmento);
+        const interno = uploadFileInChunks(file, {
+          ttlHours: optionsRef.current.ttlHours,
+          maxDownloads: optionsRef.current.maxDownloads,
+          uploadedBy: getUploaderName() || undefined,
+          onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
+          headers,
+          fuente,
+          neutro: { filename: NOMBRE_CIFRADO, mimeType: TIPO_CIFRADO },
+        });
+        ctl.abort = interno.abort;
+        const resultado = await interno.promise;
+        consolidarClave(file, resultado.id, fuente.fragmento);
+        // El enlace útil lleva la clave; el nombre de verdad, el del fichero.
+        return {
+          ...resultado,
+          originalName: file.name,
+          downloadUrl: `${resultado.downloadUrl}#${fuente.fragmento}`,
+        };
+      })();
+      const handle: UploadHandle = { promise: promesa, abort: () => ctl.abort() };
       handles.current.set(key, handle);
 
       handle.promise
         .then((result) => {
-          update(key, { state: "done", result, loaded: file.size });
+          update(key, { state: "done", result, loaded: result.size });
           toast.success("Uploaded", { description: file.name });
           onCompleted();
         })

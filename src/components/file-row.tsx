@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { CopyLinkButton } from "@/components/copy-link-button";
 import { ShareButton } from "@/components/share-button";
 import { QrDialog } from "@/components/qr-dialog";
+import { entradaLlavero } from "@/lib/e2ee-client";
 import {
   fileEmoji,
   formatAgo,
@@ -27,6 +28,8 @@ export interface FileInfo {
   downloadCount: number;
   maxDownloads: number;
   uploadedBy?: string;
+  /** El contenido es un bulto cifrado; el nombre y el tipo son marcadores. */
+  encrypted?: boolean;
 }
 
 interface Props {
@@ -56,26 +59,48 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
     }
   }
 
+  /**
+   * Un fichero cifrado llega del servidor con un nombre neutro: el de verdad
+   * solo existe en el llavero del navegador donde se subió. Aquí se decide qué
+   * enseñar y, más importante, qué enlace se copia: el fragmento con la clave
+   * sale del llavero — sin él, un enlace copiado desde otro dispositivo no
+   * abriría nada, y es mejor decirlo que fingir.
+   */
+  const llavero = file.encrypted ? entradaLlavero(file.id) : null;
+  const nombre = file.encrypted ? (llavero?.name ?? "Encrypted file") : file.originalName;
+  const ruta = `/d/${file.id}${llavero ? `#${llavero.k}` : ""}`;
+  const sinClave = Boolean(file.encrypted && !llavero);
+
   return (
     <li className="dd-file-row group relative overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:border-border hover:bg-card">
       <div className="flex items-start gap-3 p-3 sm:items-center sm:p-4">
         {/* Select to download several together as one archive. */}
+        {/* El zip lo monta el servidor, y de un bulto cifrado solo sabría
+            empaquetar ciphertext inservible: los cifrados no entran en la
+            selección hasta que exista el zip en el navegador (docs/24, F4). */}
         <input
           type="checkbox"
           checked={selected}
           onChange={() => onToggle(file.id)}
-          aria-label={`Select ${file.originalName}`}
-          className="mt-1 size-4 shrink-0 accent-primary sm:mt-0"
+          aria-label={`Select ${nombre}`}
+          disabled={Boolean(file.encrypted)}
+          title={file.encrypted ? "Encrypted files cannot be zipped by the server" : undefined}
+          className="mt-1 size-4 shrink-0 accent-primary disabled:opacity-30 sm:mt-0"
         />
         <span aria-hidden className="mt-0.5 text-xl sm:mt-0 sm:text-2xl">
-          {fileEmoji(file.mimeType, file.originalName)}
+          {file.encrypted ? "🔒" : fileEmoji(file.mimeType, file.originalName)}
         </span>
 
         <div className="min-w-0 flex-1">
           {/* Truncation keeps a long unbroken name from overflowing on mobile. */}
-          <p className="truncate text-sm font-medium sm:text-[15px]" title={file.originalName}>
-            {file.originalName}
+          <p className="truncate text-sm font-medium sm:text-[15px]" title={nombre}>
+            {nombre}
           </p>
+          {sinClave && (
+            <p className="text-xs text-muted-foreground">
+              key lives in the browser it was uploaded from
+            </p>
+          )}
 
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span className="tabular-nums">{formatBytes(file.size)}</span>
@@ -105,15 +130,15 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
           >
             {remaining}
           </Badge>
-          <ShareButton path={`/d/${file.id}`} title={file.originalName} />
-          <QrDialog path={`/d/${file.id}`} filename={file.originalName} />
-          <CopyLinkButton path={`/d/${file.id}`} variant="ghost" className="size-9" />
+          <ShareButton path={ruta} title={nombre} />
+          <QrDialog path={ruta} filename={nombre} />
+          <CopyLinkButton path={ruta} variant="ghost" className="size-9" />
           <Button
-            render={<a href={`/api/download/${file.id}`} />}
+            render={<a href={file.encrypted ? ruta : `/api/download/${file.id}`} />}
             variant="ghost"
             size="icon"
             className="size-9"
-            aria-label={`Download ${file.originalName}`}
+            aria-label={`Download ${nombre}`}
           >
             <Download className="size-4" aria-hidden />
           </Button>

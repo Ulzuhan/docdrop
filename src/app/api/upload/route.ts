@@ -167,6 +167,9 @@ export async function POST(request: NextRequest) {
       // La credencial, no la etiqueta: lo subido por cuenta es de esa cuenta, y
       // lo subido por un enlace de invitado, de quien emitió el enlace.
       owner: account ? `user:${account.id}` : guest ? await ownerForGuestToken(guest.token) : undefined,
+      // Autodeclarado, como en /api/upload/init: solo decide el camino de la
+      // página de descarga.
+      encrypted: request.headers.get("x-docdrop-encrypted") === "1" || undefined,
     };
     await writeMeta(meta);
     if (guest) await recordGuestUpload(guest.token);

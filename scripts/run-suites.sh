@@ -33,7 +33,7 @@ RAIZ_PRUEBAS="$(mktemp -d)"
 export ALMACEN="$RAIZ_PRUEBAS/almacen"
 export DOCDROP_DATA_DIR="$ALMACEN"
 
-TODAS=(acceso ficheros upload)
+TODAS=(acceso ficheros upload e2ee)
 SUITES=("${@:-${TODAS[@]}}")
 [ $# -gt 0 ] && SUITES=("$@")
 
@@ -124,7 +124,12 @@ for suite in "${SUITES[@]}"; do
   arrancar || { fallo=1; continue; }
   printf "%-10s " "$suite"
   guion="scripts/test-$suite.mjs"
-  salida=$(node "$guion" 2>&1)
+  # La suite de cifrado importa el módulo TypeScript de verdad (src/lib/e2ee.ts),
+  # no un doble: --experimental-strip-types lo carga en Node ≥22 pelando los
+  # tipos. El resto de suites no lo necesitan y corren igual que siempre.
+  flags=""
+  [ "$suite" = e2ee ] && flags="--experimental-strip-types"
+  salida=$(node $flags "$guion" 2>&1)
   estado=$?
   echo "$salida" | tail -1
   if [ $estado -ne 0 ]; then

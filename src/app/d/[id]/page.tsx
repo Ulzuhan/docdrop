@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, Clock, Download, Flame, Loader2 } from "lucide-react";
@@ -16,6 +16,8 @@ import {
   formatDateTime,
   formatRemaining,
 } from "@/lib/format";
+import { claveDesdeFragmento, descifrarFichero } from "@/lib/e2ee";
+import { entradaLlavero } from "@/lib/e2ee-client";
 
 interface FileInfo {
   id: string;
@@ -26,7 +28,14 @@ interface FileInfo {
   expiresAt: number;
   downloadCount: number;
   maxDownloads: number;
+  /** El contenido es un bulto cifrado: el nombre y el tipo de arriba son marcadores. */
+  encrypted?: boolean;
 }
+
+/** En memoria de momento: por encima de esto se avisa antes de intentarlo. */
+const AVISO_MEMORIA = 1.5 * 1024 * 1024 * 1024;
+
+const noopSubscribe = () => () => {};
 
 export default function DownloadPage() {
   const params = useParams();
@@ -37,6 +46,22 @@ export default function DownloadPage() {
   const [reason, setReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  // La mitad del enlace que el servidor nunca vio: el fragmento. Solo existe en
+  // el navegador (los fragmentos no viajan en la petición), así que en el
+  // servidor se lee como null y el cliente lo resuelve al hidratar — el mismo
+  // patrón que usa el resto del repo para lo que solo el navegador sabe.
+  const montado = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  );
+  const fragmento = montado ? window.location.hash || null : null;
+  // El nombre de verdad si esta persona es quien subió (llavero local), o el que
+  // salga de descifrar. El llavero se lee en el render una vez montado: es
+  // lectura pura de localStorage, no una sincronización que pida un efecto.
+  const [nombreDescifrado, setNombreDescifrado] = useState<string | null>(null);
+  const nombreReal = nombreDescifrado ?? (montado ? entradaLlavero(id)?.name ?? null : null);
+  const [falloDescifrado, setFalloDescifrado] = useState<string | null>(null);
   // Clock in state: reading Date.now() during render is impure and left the
   // countdown frozen. The initial value never reaches the prerendered HTML because
   // this block only paints once fileInfo is there, fetched on the client.
@@ -82,6 +107,48 @@ export default function DownloadPage() {
     window.location.href = `/api/download/${id}`;
     setTimeout(() => setDownloading(false), 2500);
   }
+
+  /**
+   * El camino cifrado: bajar el bulto, abrirlo AQUÍ y entregar el claro.
+   *
+   * El servidor solo ve la descarga del bulto (que cuenta como descarga, igual
+   * que siempre); el descifrado y el nombre de verdad ocurren en este navegador
+   * con la clave del fragmento. Cualquier manipulación del bulto —un byte, un
+   * trozo movido, un recorte— hace saltar el GCM y se dice, no se entrega un
+   * fichero a medias.
+   */
+  async function descargarCifrado() {
+    const clave = fragmento ? claveDesdeFragmento(fragmento) : null;
+    if (!clave) return;
+    setDownloading(true);
+    setFalloDescifrado(null);
+    try {
+      const res = await fetch(`/api/download/${id}`);
+      if (!res.ok) throw new Error(`download ${res.status}`);
+      const bulto = new Uint8Array(await res.arrayBuffer());
+      const abierto = await descifrarFichero(clave, bulto);
+      if (!abierto) throw new Error("formato");
+      const blob = new Blob([abierto.datos as unknown as ArrayBuffer], { type: abierto.cabecera.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = abierto.cabecera.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setNombreDescifrado(abierto.cabecera.name);
+    } catch {
+      // Sin distinguir causas hacia fuera: o el enlace está mal, o el bulto fue
+      // manipulado. En ambos casos lo honesto es no entregar nada.
+      setFalloDescifrado(
+        "Could not decrypt this file. The link may be incomplete, or the stored data does not verify."
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const cifrado = Boolean(fileInfo?.encrypted);
+  const claveValida = Boolean(fragmento && claveDesdeFragmento(fragmento));
 
   const expired = fileInfo ? fileInfo.expiresAt <= now : false;
 
@@ -139,10 +206,15 @@ Go to DocDrop
               </span>
               <h1
                 className="mt-4 text-xl font-semibold tracking-tight break-words text-balance sm:text-2xl"
-                title={fileInfo.originalName}
+                title={cifrado ? undefined : fileInfo.originalName}
               >
-                {fileInfo.originalName}
+                {cifrado ? nombreReal ?? "Encrypted file" : fileInfo.originalName}
               </h1>
+              {cifrado && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Encrypted in the sender&apos;s browser — this server cannot read it.
+                </p>
+              )}
               <p className="mt-1 text-sm tabular-nums text-muted-foreground">
                 {formatBytes(fileInfo.size)}
               </p>
@@ -219,24 +291,55 @@ Expires
               <p className="mt-6 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-center text-sm text-destructive">
 This file has expired and is no longer available.
               </p>
+            ) : cifrado && !claveValida ? (
+              // El enlace llegó sin su mitad secreta. Decir exactamente eso: el
+              // servidor no puede reponerla porque nunca la tuvo.
+              <p className="mt-6 rounded-xl border border-warning/30 bg-warning/5 p-3 text-center text-sm text-muted-foreground">
+This link is missing its key — the part after <span className="font-mono">#</span>.
+Ask whoever sent it for the complete link; the server never had the key and cannot
+recover it.
+              </p>
             ) : (
               <div className="mt-6 flex items-center gap-2">
-                <Button size="lg" className="h-12 flex-1 text-base" onClick={download}>
+                <Button
+                  size="lg"
+                  className="h-12 flex-1 text-base"
+                  onClick={cifrado ? descargarCifrado : download}
+                  disabled={downloading}
+                >
                   {downloading ? (
                     <Loader2 className="size-5 animate-spin" aria-hidden />
                   ) : (
                     <Download className="size-5" aria-hidden />
                   )}
-                  {downloading ? "Starting…" : "Download"}
+                  {downloading ? (cifrado ? "Decrypting…" : "Starting…") : "Download"}
                 </Button>
-                {/* Forward the link to someone else without going back to the dashboard. */}
+                {/* Forward the link to someone else without going back to the dashboard.
+                    Con cifrado, el fragmento viaja en lo que se comparte: sin él, el
+                    enlace no abre nada. */}
                 <ShareButton
-                  path={`/d/${id}`}
-                  title={fileInfo.originalName}
+                  path={`/d/${id}${cifrado && fragmento ? fragmento : ""}`}
+                  title={cifrado ? nombreReal ?? "Encrypted file" : fileInfo.originalName}
                   className="size-12 shrink-0"
                 />
-                <QrDialog path={`/d/${id}`} filename={fileInfo.originalName} />
+                <QrDialog
+                  path={`/d/${id}${cifrado && fragmento ? fragmento : ""}`}
+                  filename={cifrado ? nombreReal ?? "Encrypted file" : fileInfo.originalName}
+                />
               </div>
+            )}
+
+            {falloDescifrado && (
+              <p className="mt-3 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-center text-sm text-destructive">
+                {falloDescifrado}
+              </p>
+            )}
+
+            {cifrado && claveValida && !expired && fileInfo.size > AVISO_MEMORIA && (
+              <p className="mt-3 text-center text-xs text-muted-foreground">
+Decryption happens in this browser and this file is large; on low-memory devices it
+may fail. A streaming path is coming.
+              </p>
             )}
 
             {fileInfo.maxDownloads > 0 && !expired && (

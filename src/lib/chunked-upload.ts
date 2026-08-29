@@ -150,6 +150,17 @@ export interface UploadOptions {
   retries?: number;
   /** Extra headers on every request — how a guest link authenticates. */
   headers?: Record<string, string>;
+  /**
+   * La fuente cifrada, cuando la subida va de punta a punta (e2ee-client.ts).
+   * Sustituye a los BYTES del fichero — otro tamaño, otro contenido, nombre
+   * neutro — pero no a su identidad: la huella de reanudación sigue siendo la
+   * del fichero en claro, que es lo que la persona vuelve a elegir. Como los
+   * nonces son deterministas, la fuente reconstruida produce bytes idénticos y
+   * la reanudación no se entera de que hay cifrado.
+   */
+  fuente?: { size: number; rango(start: number, end: number): Promise<Uint8Array> };
+  /** Lo que el servidor debe apuntar como nombre y tipo cuando hay fuente. */
+  neutro?: { filename: string; mimeType: string };
 }
 
 export function uploadFileInChunks(file: File, options: UploadOptions): UploadHandle {
@@ -179,17 +190,22 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
     }
 
     // ── Or open a new one ───────────────────────────────────────────
+    const fuente = options.fuente;
+    const tamanoReal = fuente ? fuente.size : file.size;
     if (!uploadId) {
       const res = await fetch("/api/upload/init", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...options.headers },
         body: JSON.stringify({
-          filename: file.name,
-          size: file.size,
-          mimeType: file.type || "application/octet-stream",
+          filename: fuente ? options.neutro?.filename ?? "encrypted" : file.name,
+          size: tamanoReal,
+          mimeType: fuente
+            ? options.neutro?.mimeType ?? "application/octet-stream"
+            : file.type || "application/octet-stream",
           ttlHours: options.ttlHours,
           maxDownloads: options.maxDownloads ?? 0,
           uploadedBy: options.uploadedBy,
+          encrypted: Boolean(fuente),
         }),
       });
       if (res.status === 401) throw new Error("UNAUTHORIZED");
@@ -205,10 +221,10 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
     const pending = Array.from({ length: totalParts }, (_, i) => i).filter((i) => !done.has(i));
 
     // What the server already confirmed counts as progress from the start.
-    let loaded = done.size > 0 ? Math.min(file.size, done.size * chunkSize) : 0;
+    let loaded = done.size > 0 ? Math.min(tamanoReal, done.size * chunkSize) : 0;
     const report = (delta: number) => {
-      loaded = Math.max(0, Math.min(file.size, loaded + delta));
-      options.onProgress?.({ loaded, total: file.size, resumed: received.length > 0 });
+      loaded = Math.max(0, Math.min(tamanoReal, loaded + delta));
+      options.onProgress?.({ loaded, total: tamanoReal, resumed: received.length > 0 });
     };
     report(0);
 
@@ -220,7 +236,12 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
 
         const index = pending[cursor++];
         const start = index * chunkSize;
-        const blob = file.slice(start, Math.min(start + chunkSize, file.size));
+        const fin = Math.min(start + chunkSize, tamanoReal);
+        // Con fuente, los bytes se materializan al pedirlos: es lo que permite
+        // cifrar un fichero de gigas sin tenerlo cifrado entero en ningún sitio.
+        const blob = fuente
+          ? new Blob([(await fuente.rango(start, fin)) as unknown as ArrayBuffer])
+          : file.slice(start, fin);
         const checksum = await sha256Hex(blob);
 
         let attempt = 0;

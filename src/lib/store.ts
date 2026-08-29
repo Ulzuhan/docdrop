@@ -64,6 +64,13 @@ export interface FileMeta {
    */
   owner?: string;
   /**
+   * El contenido es un bulto cifrado en el navegador de quien subió (docs/24
+   * de kaicorplabs). El servidor no puede abrirlo: `originalName` y `mimeType`
+   * son marcadores neutros y los de verdad viajan dentro, cifrados. Esta marca
+   * solo decide qué camino toma la página de descarga.
+   */
+  encrypted?: boolean;
+  /**
    * Tombstone marker: the content is already deleted, but the meta.json is kept for
    * a while so we can answer "this expired / ran out of downloads" instead of a
    * "not found" that is indistinguishable from a mistyped link.

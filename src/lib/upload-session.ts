@@ -70,6 +70,8 @@ export interface UploadSession {
    * llevan. Duran 24 horas; pasadas ésas no queda ninguna sin dueño.
    */
   owner?: string;
+  /** La subida es un bulto cifrado de punta a punta; pasa al meta al terminar. */
+  encrypted?: boolean;
 }
 
 function entryDir(id: string): string {
@@ -108,6 +110,7 @@ export interface CreateSessionInput {
   maxDownloads?: unknown;
   uploadedBy?: unknown;
   owner?: string;
+  encrypted?: boolean;
 }
 
 export async function createSession(input: CreateSessionInput): Promise<UploadSession> {
@@ -127,6 +130,7 @@ export async function createSession(input: CreateSessionInput): Promise<UploadSe
     sessionExpiresAt: now + SESSION_TTL,
     uploadedBy: sanitizeUploader(input.uploadedBy),
     owner: input.owner,
+    encrypted: input.encrypted || undefined,
   };
 
   await mkdir(partsDir(id), { recursive: true });
@@ -207,6 +211,7 @@ export async function completeSession(session: UploadSession): Promise<CompleteR
     owner: session.owner?.startsWith("guest:")
       ? await ownerForGuestToken(session.owner.slice("guest:".length))
       : session.owner,
+    encrypted: session.encrypted || undefined,
   };
 
   await writeMeta(meta);

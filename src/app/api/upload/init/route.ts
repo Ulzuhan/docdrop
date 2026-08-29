@@ -90,6 +90,11 @@ export async function POST(request: NextRequest) {
       ttlHours,
       maxDownloads: body.maxDownloads,
       uploadedBy,
+      // Autodeclarado por el cliente y sin nada que verificar: al servidor le da
+      // igual qué bytes custodia. La marca solo cambia qué camino toma la
+      // página de descarga, y mentir aquí solo le rompe la descarga a quien
+      // mintió. Ver docs/24 de kaicorplabs.
+      encrypted: (body as { encrypted?: unknown }).encrypted === true,
     })
   );
 
