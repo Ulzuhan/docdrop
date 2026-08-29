@@ -17,7 +17,7 @@ import {
   formatRemaining,
 } from "@/lib/format";
 import { claveDesdeFragmento, descifrarFichero } from "@/lib/e2ee";
-import { entradaLlavero } from "@/lib/e2ee-client";
+import { descargaEnFlujoDisponible, descargarEnFlujo, entradaLlavero } from "@/lib/e2ee-client";
 
 interface FileInfo {
   id: string;
@@ -122,6 +122,32 @@ export default function DownloadPage() {
     if (!clave) return;
     setDownloading(true);
     setFalloDescifrado(null);
+
+    // El camino bueno: descifrar hacia disco vía service worker, sin memoria.
+    // Si este navegador no lo aguanta (Safari, contexto sin SW), se cae al
+    // camino en memoria de abajo — mismo resultado, otro coste.
+    if (descargaEnFlujoDisponible()) {
+      try {
+        const { nombre } = await descargarEnFlujo(id, clave);
+        setNombreDescifrado(nombre);
+        setDownloading(false);
+        return;
+      } catch (error) {
+        if (error instanceof Error && error.message === "cancelled") {
+          setDownloading(false);
+          return;
+        }
+        // Antes de emitir bytes no hay descarga nacida: probar en memoria es
+        // seguro. Si falló a mitad, el navegador ya marcó la descarga como
+        // fallida y esto solo añade el porqué.
+        setFalloDescifrado(
+          "Could not decrypt this file. The link may be incomplete, or the stored data does not verify."
+        );
+        setDownloading(false);
+        return;
+      }
+    }
+
     try {
       const res = await fetch(`/api/download/${id}`);
       if (!res.ok) throw new Error(`download ${res.status}`);

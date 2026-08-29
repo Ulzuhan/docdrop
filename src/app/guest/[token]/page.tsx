@@ -182,7 +182,7 @@ export default function GuestPage() {
                 )}
               </div>
 
-              <UploadQueue items={items} onCancel={cancel} onClearFinished={clearFinished} />
+              <UploadQueue items={items} onCancel={cancel} onClearFinished={clearFinished} modoInvitado />
             </section>
           </>
         )}

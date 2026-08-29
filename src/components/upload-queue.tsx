@@ -251,10 +251,20 @@ export function UploadQueue({
   items,
   onCancel,
   onClearFinished,
+  modoInvitado = false,
 }: {
   items: QueueItem[];
   onCancel: (key: string) => void;
   onClearFinished: () => void;
+  /**
+   * Quien sube por un enlace de invitado NO es el destinatario: el fichero es
+   * para quien le mandó el enlace, y como el cifrado nace en este navegador, la
+   * única copia de la clave está en el enlace de descarga recién generado. Con
+   * esto puesto, cada subida terminada lo dice sin rodeos y hace del copiar la
+   * acción principal — perder ese enlace es perder el fichero, también para
+   * quien lo pidió. Ver kaicorplabs/docs/24, decisión 2.
+   */
+  modoInvitado?: boolean;
 }) {
   if (items.length === 0) return null;
 
@@ -323,7 +333,7 @@ export function UploadQueue({
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1">
-                  {item.state === "done" && item.result && (
+                  {item.state === "done" && item.result && !modoInvitado && (
                     <>
                       <ShareButton
                         path={item.result.downloadUrl}
@@ -359,6 +369,34 @@ export function UploadQueue({
 
               {(item.state === "uploading" || item.state === "pending") && (
                 <Progress value={pct} className="mt-2 h-1" />
+              )}
+
+              {modoInvitado && item.state === "done" && item.result && (
+                /* La pantalla que docs/24 exige que sea imposible de ignorar:
+                   este enlace ES el fichero. El servidor guarda un bulto que no
+                   puede abrir, y la única clave está aquí, en este navegador,
+                   dentro de este enlace. Sin mandárselo a quien lo pidió, ni
+                   esa persona ni nadie podrá leerlo jamás. */
+                <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+                  <p className="text-sm font-medium">
+                    Encrypted — only this link can open it
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Send this link back to whoever asked for the file. It was
+                    encrypted in your browser and this link holds the only key:
+                    without it, not even they can read what you just uploaded.
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 truncate rounded-lg bg-background/60 px-2 py-1.5 font-mono text-xs">
+                      {`${typeof window !== "undefined" ? window.location.origin : ""}${item.result.downloadUrl}`}
+                    </code>
+                    <CopyLinkButton
+                      path={item.result.downloadUrl}
+                      label="Copy link"
+                      className="shrink-0"
+                    />
+                  </div>
+                </div>
               )}
             </li>
           );

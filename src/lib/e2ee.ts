@@ -259,6 +259,88 @@ export async function cifrarFichero(
   return bulto;
 }
 
+/**
+ * El descifrado en flujo: un bulto de gigas sin tenerlo entero en ningún sitio.
+ *
+ * Consume el stream del ciphertext (lo que da `fetch(...).body`) y produce el
+ * claro trozo a trozo. Es la pieza de la descarga por service worker (F2 de
+ * docs/24): el navegador escribe cada trozo descifrado a disco según llega.
+ *
+ * Las mismas garantías que la versión de una sentada, en el mismo orden en que
+ * el peligro aparece: la cabecera se verifica antes de emitir ningún byte, cada
+ * trozo salta si fue manipulado o movido, un stream que se corta antes del
+ * último trozo termina en error —nunca en un fichero a medias entregado como
+ * entero—, y bytes de más tras el último trozo también son error.
+ */
+export async function abrirFlujo(
+  clave: Uint8Array,
+  bulto: ReadableStream<Uint8Array>
+): Promise<{ cabecera: CabeceraE2EE; datos: ReadableStream<Uint8Array> } | null> {
+  const lector = bulto.getReader();
+  let resto = new Uint8Array(0);
+  let acabado = false;
+
+  async function leerHasta(n: number): Promise<boolean> {
+    while (resto.length < n && !acabado) {
+      const { value, done } = await lector.read();
+      if (done) {
+        acabado = true;
+        break;
+      }
+      const junto = new Uint8Array(resto.length + value.length);
+      junto.set(resto, 0);
+      junto.set(value, resto.length);
+      resto = junto;
+    }
+    return resto.length >= n;
+  }
+
+  // El prefijo: bastan 12 bytes para saber cuánta cabecera pedir.
+  if (!(await leerHasta(12))) return null;
+  const vista = new DataView(resto.buffer, resto.byteOffset);
+  let magiaOk = true;
+  for (let i = 0; i < 4; i++) if (resto[i] !== MAGIA[i]) magiaOk = false;
+  if (!magiaOk) return null;
+  const trozoClaro = vista.getUint32(4);
+  const hdrLen = vista.getUint32(8);
+  if (trozoClaro < 1024 || hdrLen < ETIQUETA) return null;
+  if (!(await leerHasta(12 + hdrLen))) return null;
+
+  const cabecera = await descifrarCabecera(clave, resto.slice(12, 12 + hdrLen));
+  resto = resto.slice(12 + hdrLen);
+
+  const totalTrozos = Math.max(1, Math.ceil(cabecera.size / trozoClaro));
+  let indice = 0;
+
+  const datos = new ReadableStream<Uint8Array>({
+    pull: async (controlador) => {
+      if (indice >= totalTrozos) {
+        // Bytes de más tras el último trozo = extensión: también manipulación.
+        if (resto.length > 0 || (await leerHasta(1))) {
+          controlador.error(new Error("Trailing bytes after final chunk"));
+          return;
+        }
+        controlador.close();
+        return;
+      }
+      const esUltimo = indice === totalTrozos - 1;
+      const tamanoClaro = esUltimo ? cabecera.size - indice * trozoClaro : trozoClaro;
+      const necesita = tamanoClaro + ETIQUETA;
+      if (!(await leerHasta(necesita))) {
+        controlador.error(new Error("Truncated stream"));
+        return;
+      }
+      const cifrado = resto.slice(0, necesita);
+      resto = resto.slice(necesita);
+      controlador.enqueue(await descifrarTrozo(clave, cifrado, indice, esUltimo));
+      indice++;
+    },
+    cancel: () => lector.cancel().catch(() => {}),
+  });
+
+  return { cabecera, datos };
+}
+
 /** Lanza ante cualquier manipulación; null solo si el bulto no es del formato. */
 export async function descifrarFichero(
   clave: Uint8Array,

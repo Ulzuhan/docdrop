@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ETIQUETA,
+  abrirFlujo,
   cifrarFichero,
   cifrarTrozo,
   claveAFragmento,
@@ -152,6 +153,82 @@ describe("lo que un custodio malicioso puede intentar, y falla", () => {
   it("otra clave no abre nada", async () => {
     const { bulto } = await montar();
     await expect(descifrarFichero(nuevaClave(), bulto)).rejects.toThrow();
+  });
+});
+
+describe("el flujo: gigas sin memoria", () => {
+  /** El bulto entregado en cachos de tamaños incómodos, como llega de la red. */
+  const aTrozosRaros = (bulto: Uint8Array) =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        let i = 0;
+        const tamanos = [7, 1024, 3, 4096, 1, 999999];
+        let t = 0;
+        while (i < bulto.length) {
+          const n = Math.min(tamanos[t++ % tamanos.length], bulto.length - i);
+          c.enqueue(bulto.slice(i, i + n));
+          i += n;
+        }
+        c.close();
+      },
+    });
+
+  const recoger = async (flujo: ReadableStream<Uint8Array>) => {
+    const partes: Uint8Array[] = [];
+    const lector = flujo.getReader();
+    for (;;) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      partes.push(value);
+    }
+    const total = partes.reduce((s, p) => s + p.length, 0);
+    const junto = new Uint8Array(total);
+    let o = 0;
+    for (const p of partes) {
+      junto.set(p, o);
+      o += p.length;
+    }
+    return junto;
+  };
+
+  it("ida y vuelta en flujo, con cachos de red de tamaños raros", async () => {
+    const clave = nuevaClave();
+    const claro = datos(TROZO * 3 + 511);
+    const bulto = await cifrarFichero(clave, { name: "grande.bin", mimeType: "x/y", size: claro.length }, claro, TROZO);
+    const abierto = await abrirFlujo(clave, aTrozosRaros(bulto));
+    expect(abierto?.cabecera.name).toBe("grande.bin");
+    expect(await recoger(abierto!.datos)).toEqual(claro);
+  });
+
+  it("la cabecera se verifica antes de emitir un solo byte", async () => {
+    const clave = nuevaClave();
+    const bulto = await cifrarFichero(clave, { name: "x", mimeType: "x/y", size: TROZO }, datos(TROZO), TROZO);
+    bulto[14] ^= 0x01;
+    await expect(abrirFlujo(clave, aTrozosRaros(bulto))).rejects.toThrow();
+  });
+
+  it("un stream cortado a la mitad termina en error, no en un fichero a medias", async () => {
+    const clave = nuevaClave();
+    const claro = datos(TROZO * 3);
+    const bulto = await cifrarFichero(clave, { name: "x", mimeType: "x/y", size: claro.length }, claro, TROZO);
+    const cortado = bulto.slice(0, bulto.length - TROZO);
+    const abierto = await abrirFlujo(clave, aTrozosRaros(cortado));
+    await expect(recoger(abierto!.datos)).rejects.toThrow();
+  });
+
+  it("un trozo manipulado a mitad de flujo corta la emisión", async () => {
+    const clave = nuevaClave();
+    const claro = datos(TROZO * 3);
+    const bulto = await cifrarFichero(clave, { name: "x", mimeType: "x/y", size: claro.length }, claro, TROZO);
+    const prefijo = leerPrefijo(bulto)!;
+    bulto[prefijo.datosDesde + TROZO + ETIQUETA + 5] ^= 0x01; // el segundo trozo
+    const abierto = await abrirFlujo(clave, aTrozosRaros(bulto));
+    await expect(recoger(abierto!.datos)).rejects.toThrow();
+  });
+
+  it("lo que no es un bulto da null también en flujo", async () => {
+    const abierto = await abrirFlujo(nuevaClave(), aTrozosRaros(new TextEncoder().encode("PDF-1.7 nada de esto")));
+    expect(abierto).toBeNull();
   });
 });
 

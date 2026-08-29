@@ -27,6 +27,7 @@ import {
   type CabeceraE2EE,
   ETIQUETA,
   TROZO_CLARO,
+  abrirFlujo,
   cifrarCabecera,
   cifrarTrozo,
   claveAFragmento,
@@ -111,6 +112,97 @@ export async function fuenteCifrada(file: File, claveExistente?: Uint8Array): Pr
       return salida;
     },
   };
+}
+
+// ─── La descarga en flujo, vía service worker ───────────────────────────────
+
+/** Si este navegador puede descifrar hacia disco sin pasar por la memoria. */
+export function descargaEnFlujoDisponible(): boolean {
+  return typeof navigator !== "undefined" && Boolean(navigator.serviceWorker?.controller);
+}
+
+/**
+ * Descifra un bulto de cualquier tamaño directamente hacia el disco.
+ *
+ * El truco es convertir un stream de la página en una descarga nativa: se
+ * anuncia al service worker una URL de un solo uso con el nombre y el tamaño en
+ * claro, un iframe oculto la navega —el navegador arranca su descarga, con su
+ * barra de progreso— y el worker TIRA de esta página trozo a trozo ({pide} →
+ * {bytes}), que es la contrapresión: nunca hay más de un trozo descifrado en
+ * vuelo, dé igual lo rápida que sea la red o lo lento que sea el disco.
+ *
+ * La cabecera se verifica antes de arrancar nada: un enlace con la clave mal no
+ * llega a crear ninguna descarga. Un trozo manipulado a mitad corta el stream y
+ * el navegador marca la descarga como fallida — nunca queda un fichero a medias
+ * con pinta de entero.
+ */
+export async function descargarEnFlujo(
+  id: string,
+  clave: Uint8Array,
+  onProgress?: (bytes: number, total: number) => void
+): Promise<{ nombre: string }> {
+  const controlador = navigator.serviceWorker?.controller;
+  if (!controlador) throw new Error("no service worker");
+
+  const res = await fetch(`/api/download/${id}`);
+  if (!res.ok || !res.body) throw new Error(`download ${res.status}`);
+  const abierto = await abrirFlujo(clave, res.body);
+  if (!abierto) throw new Error("formato");
+  const { cabecera, datos } = abierto;
+
+  const token = globalThis.crypto.randomUUID();
+  const canal = new MessageChannel();
+
+  const lector = datos.getReader();
+  let servido = 0;
+  let terminar: (v: { nombre: string }) => void;
+  let fallar: (e: unknown) => void;
+  const hecho = new Promise<{ nombre: string }>((res2, rej2) => {
+    terminar = res2;
+    fallar = rej2;
+  });
+
+  canal.port1.onmessage = async (event) => {
+    const m = event.data as { tipo: string };
+    if (m.tipo === "listo") {
+      // El worker ya conoce el token: ahora sí puede nacer la descarga.
+      const iframe = document.createElement("iframe");
+      iframe.hidden = true;
+      iframe.src = `/descarga-local/${token}`;
+      document.body.appendChild(iframe);
+      setTimeout(() => iframe.remove(), 60_000);
+      return;
+    }
+    if (m.tipo === "pide") {
+      try {
+        const { value, done } = await lector.read();
+        if (done) {
+          canal.port1.postMessage({ tipo: "fin" });
+          terminar({ nombre: cabecera.name });
+          return;
+        }
+        servido += value.length;
+        onProgress?.(servido, cabecera.size);
+        // Transferido, no copiado: el trozo cambia de manos sin duplicarse.
+        canal.port1.postMessage({ tipo: "bytes", bytes: value.buffer }, [value.buffer]);
+      } catch (error) {
+        canal.port1.postMessage({ tipo: "error", motivo: "decrypt failed" });
+        fallar(error);
+      }
+      return;
+    }
+    if (m.tipo === "cancelado") {
+      void lector.cancel().catch(() => {});
+      fallar(new Error("cancelled"));
+    }
+  };
+
+  controlador.postMessage(
+    { tipo: "docdrop-descarga", token, nombre: cabecera.name, tamano: cabecera.size },
+    [canal.port2]
+  );
+
+  return hecho;
 }
 
 // ─── El llavero local ───────────────────────────────────────────────────────
