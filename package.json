@@ -31,9 +31,10 @@
     "lint": "eslint",
     "postbuild": "node scripts/prepare-standalone.js",
     "test:upload": "node scripts/test-upload.mjs",
-    "test": "./scripts/run-suites.sh",
+    "test": "vitest run && ./scripts/run-suites.sh",
     "test:acceso": "node scripts/test-acceso.mjs",
-    "test:ficheros": "node scripts/test-ficheros.mjs"
+    "test:ficheros": "node scripts/test-ficheros.mjs",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -59,7 +60,8 @@
     "eslint-config-next": "^16.2.12",
     "shadcn": "^4.16.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "sharp": "^0.35.0",
