@@ -32,6 +32,9 @@ The problem it was built for: passing a 7 GB GoPro video between phones and lapt
 
 ## Quick start
 
+For production — the proxy's obligations, the single-instance requirement, the
+no-backup policy and its encryption nuance — see [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 ### Docker
 
 ```bash
