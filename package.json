@@ -1,6 +1,6 @@
 {
   "name": "docdrop",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Self-hosted file sharing with expiring links: resumable chunked uploads for multi-GB files, previews, and streamed ZIP downloads.",
   "license": "MIT",
   "author": "Ulzuhan (https://github.com/Ulzuhan)",
@@ -34,7 +34,8 @@
     "test": "vitest run && ./scripts/run-suites.sh",
     "test:acceso": "node scripts/test-acceso.mjs",
     "test:ficheros": "node scripts/test-ficheros.mjs",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:backchannel": "bash scripts/test-backchannel.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
