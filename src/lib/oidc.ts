@@ -111,7 +111,13 @@ function at(endpoint: string, origin: string): string {
   const url = new URL(endpoint);
   const target = new URL(origin);
   url.protocol = target.protocol;
-  url.host = target.host;
+  // `hostname` y `port` POR SEPARADO, nunca `host`: el setter de `host`
+  // deja el puerto como estaba si el valor nuevo no trae uno. Con eso,
+  // cambiar `http://proveedor-interno:9000/...` al origen público daba
+  // `https://auth.publico:9000/...` — el puerto interno colado en la URL a la
+  // que se manda el navegador, que desde fuera no existe. Pasó en producción.
+  url.hostname = target.hostname;
+  url.port = target.port;
   return url.toString();
 }
 

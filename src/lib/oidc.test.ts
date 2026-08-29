@@ -21,15 +21,28 @@ import {
 } from "./oidc";
 
 const EMISOR = "https://idp.ejemplo.com/realms/kaicorp";
-const INTERNO = "http://idp-interno:8080";
+const INTERNO = "http://idp-interno:9000";
+
+/**
+ * El emisor tal y como lo ve ESTE SERVIDOR: mismo camino, otro origen, y con
+ * PUERTO. Un proveedor devuelve sus endpoints con el origen por el que se le
+ * ha preguntado, y a él se le pregunta por la pata interna — así que el
+ * documento viene con el puerto interno dentro.
+ *
+ * Este detalle no es decorativo: la primera versión de estas pruebas usaba un
+ * documento que ya venía con el origen público, y por eso NO cazó que el
+ * puerto interno se colaba en la URL a la que se manda al navegador. Se vio en
+ * producción. El documento falso tiene que mentir como miente el de verdad.
+ */
+const EMISOR_INTERNO = `${INTERNO}${new URL(EMISOR).pathname}`;
 
 const DOCUMENTO_KEYCLOAK = {
-  issuer: EMISOR,
-  authorization_endpoint: `${EMISOR}/protocol/openid-connect/auth`,
-  token_endpoint: `${EMISOR}/protocol/openid-connect/token`,
-  userinfo_endpoint: `${EMISOR}/protocol/openid-connect/userinfo`,
-  end_session_endpoint: `${EMISOR}/protocol/openid-connect/logout`,
-  jwks_uri: `${EMISOR}/protocol/openid-connect/certs`,
+  issuer: EMISOR_INTERNO,
+  authorization_endpoint: `${EMISOR_INTERNO}/protocol/openid-connect/auth`,
+  token_endpoint: `${EMISOR_INTERNO}/protocol/openid-connect/token`,
+  userinfo_endpoint: `${EMISOR_INTERNO}/protocol/openid-connect/userinfo`,
+  end_session_endpoint: `${EMISOR_INTERNO}/protocol/openid-connect/logout`,
+  jwks_uri: `${EMISOR_INTERNO}/protocol/openid-connect/certs`,
 };
 
 function entorno() {
@@ -88,7 +101,7 @@ describe("discovery: manda el documento, no el código", () => {
   it("pregunta al emisor por su pata interna", async () => {
     await discover(oidcConfig()!);
     expect(peticiones).toEqual([
-      "http://idp-interno:8080/realms/kaicorp/.well-known/openid-configuration",
+      "http://idp-interno:9000/realms/kaicorp/.well-known/openid-configuration",
     ]);
   });
 
@@ -98,16 +111,20 @@ describe("discovery: manda el documento, no el código", () => {
     expect(url.pathname).toBe("/realms/kaicorp/protocol/openid-connect/auth");
     // Y no queda ni rastro de la forma de Authentik.
     expect(url.pathname).not.toContain("/application/o");
+    // NI DEL PUERTO INTERNO. El documento lo trae; la URL pública no debe.
+    expect(url.port).toBe("");
+    expect(url.host).toBe("idp.ejemplo.com");
   });
 
   it("los endpoints de servidor van por la pata interna, con su ruta", async () => {
     const e = await discover(oidcConfig()!);
-    expect(e.token).toBe("http://idp-interno:8080/realms/kaicorp/protocol/openid-connect/token");
-    expect(e.userinfo).toBe("http://idp-interno:8080/realms/kaicorp/protocol/openid-connect/userinfo");
-    expect(e.jwks).toBe("http://idp-interno:8080/realms/kaicorp/protocol/openid-connect/certs");
+    expect(e.token).toBe("http://idp-interno:9000/realms/kaicorp/protocol/openid-connect/token");
+    expect(e.userinfo).toBe("http://idp-interno:9000/realms/kaicorp/protocol/openid-connect/userinfo");
+    expect(e.jwks).toBe("http://idp-interno:9000/realms/kaicorp/protocol/openid-connect/certs");
   });
 
   it("el cierre de sesión es el que diga el proveedor, en público", async () => {
+    // Sin puerto: el cierre de sesión también lo visita el navegador.
     expect(await endSessionUrl(oidcConfig()!)).toBe(
       "https://idp.ejemplo.com/realms/kaicorp/protocol/openid-connect/logout"
     );
@@ -119,6 +136,8 @@ describe("discovery: manda el documento, no el código", () => {
     const e = await discover(oidcConfig()!);
     expect(e.issuers).toContain(EMISOR);
     expect(e.issuers).toContain(`${INTERNO}/realms/kaicorp`);
+    // El público, sin el puerto que traía el documento.
+    expect(e.issuers).toContain("https://idp.ejemplo.com/realms/kaicorp");
   });
 
   it("no vuelve a preguntar mientras el resultado siga fresco", async () => {
