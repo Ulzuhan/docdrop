@@ -30,7 +30,11 @@ export function proxy(request: NextRequest) {
    * entorno y quedarse con una CSP incompleta sin enterarse.
    */
   const idp = (() => {
-    const base = process.env.DOCDROP_OIDC_PUBLIC_BASE?.trim();
+    // Del emisor, que es la única dirección del proveedor que se configura
+    // desde que los endpoints se descubren (ver lib/oidc.ts). Solo hace falta
+    // su origen, así que no se le pregunta nada: esto corre en cada petición
+    // y no puede depender de la red.
+    const base = process.env.DOCDROP_OIDC_ISSUER?.trim();
     if (!base) return [];
     try {
       return [new URL(base).origin];

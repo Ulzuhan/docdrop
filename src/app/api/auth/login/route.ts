@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   const next = safeNext(raw);
 
   const response = NextResponse.redirect(
-    authorizeUrl(cfg, { state, codeChallenge: challengeFor(verifier) })
+    await authorizeUrl(cfg, { state, codeChallenge: challengeFor(verifier) })
   );
   response.cookies.set("docdrop_oidc", JSON.stringify({ verifier, state, next }), {
     httpOnly: true,

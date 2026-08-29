@@ -157,8 +157,8 @@ DOCDROP_SESSION_SECRET=$(openssl rand -hex 32)   # signs the session cookie
 DOCDROP_OIDC_CLIENT_ID=...
 DOCDROP_OIDC_CLIENT_SECRET=...
 DOCDROP_OIDC_REDIRECT_URI=https://your-host/api/auth/callback
-DOCDROP_OIDC_PUBLIC_BASE=https://your-provider     # where the browser is sent
-DOCDROP_OIDC_INTERNAL_BASE=http://127.0.0.1:9100   # where the server talks to it, if it differs
+DOCDROP_OIDC_ISSUER=https://your-provider/issuer   # every endpoint is discovered from here
+DOCDROP_OIDC_INTERNAL_BASE=http://127.0.0.1:9100   # where the server talks to it, if that differs
 ```
 
 Without them the service starts and says so on boot — *sign-in NOT configured* — and
@@ -466,8 +466,8 @@ working defaults.
 | `DOCDROP_OIDC_CLIENT_ID` | — | **Required.** See [Access model](#access-model) |
 | `DOCDROP_OIDC_CLIENT_SECRET` | — | **Required** |
 | `DOCDROP_OIDC_REDIRECT_URI` | — | **Required.** `https://your-host/api/auth/callback` |
-| `DOCDROP_OIDC_PUBLIC_BASE` | — | **Required.** Where the browser is sent |
-| `DOCDROP_OIDC_INTERNAL_BASE` | public base | Where the server talks to the provider, if that differs |
+| `DOCDROP_OIDC_ISSUER` | — | **Required.** The provider's issuer URL. Every endpoint (authorize, token, userinfo, end-session, JWKS) is read from its `/.well-known/openid-configuration`, so no provider-specific paths are baked in |
+| `DOCDROP_OIDC_INTERNAL_BASE` | issuer origin | Where the server talks to the provider, if that differs from the public origin |
 | `DOCDROP_OIDC_TIMEOUT_MS` | 10000 | Timeout for token and userinfo calls |
 | `DOCDROP_PUBLIC_HOST` | unset | Public hostname the origin check compares against. Unset, the incoming `Host` is used, which is right behind a tunnel that preserves it — verified. Only needed behind a proxy that rewrites `Host` with an internal name. |
 | `DOCDROP_ENROLL_URL` | unset | Where the landing's "Request an account" button sends people — your provider's self-service enrollment flow, if it has one. Unset, the button is not rendered and the landing only offers sign-in. |

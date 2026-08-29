@@ -83,9 +83,8 @@ arrancar() {
     DOCDROP_OIDC_CLIENT_ID=pruebas \
     DOCDROP_OIDC_CLIENT_SECRET=pruebas \
     DOCDROP_OIDC_REDIRECT_URI="$BASE/api/auth/callback" \
-    DOCDROP_OIDC_PUBLIC_BASE="http://127.0.0.1:9999" \
+    DOCDROP_OIDC_ISSUER="http://127.0.0.1:9999/application/o/docdrop/" \
     DOCDROP_OIDC_INTERNAL_BASE="http://127.0.0.1:9999" \
-    DOCDROP_OIDC_APP_SLUG=docdrop \
     PORT="$PUERTO" node scripts/start.js >"$LOG" 2>&1 &
   servidor=$!
 

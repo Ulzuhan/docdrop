@@ -4,7 +4,7 @@ DocDrop debe ejecutarse como **una sola instancia** detrás de un proxy TLS. La 
 
 ## Docker Compose
 
-1. Copia `.env.example` a `.env`, genera `DOCDROP_SESSION_SECRET` con `openssl rand -hex 32` (mínimo 32 bytes; con menos, el arranque falla cerrado) y configura OIDC con URLs HTTPS públicas. Añade `DOCDROP_ENROLL_URL` con el flujo de alta de tu proveedor: es el botón «Request an account» de la portada y sin ella no aparece — que es lo correcto si tu proveedor no tiene alta autoservicio.
+1. Copia `.env.example` a `.env`, genera `DOCDROP_SESSION_SECRET` con `openssl rand -hex 32` (mínimo 32 bytes; con menos, el arranque falla cerrado) y configura OIDC con URLs HTTPS públicas — basta `DOCDROP_OIDC_ISSUER`, porque el resto de endpoints se leen del discovery del proveedor. Añade `DOCDROP_ENROLL_URL` con el flujo de alta de tu proveedor: es el botón «Request an account» de la portada y sin ella no aparece — que es lo correcto si tu proveedor no tiene alta autoservicio.
 2. Ejecuta `docker compose up -d --build`.
 3. Publica únicamente el proxy HTTPS; Compose enlaza la aplicación a `127.0.0.1:3010`. El propio `compose.yaml` trae comentado el servicio de túnel que permite quitar el bloque `ports:` entero.
 

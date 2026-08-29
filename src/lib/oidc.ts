@@ -1,17 +1,27 @@
 /**
- * OIDC client for Authentik (authorization code flow with PKCE).
+ * OIDC client (authorization code flow with PKCE) — provider-agnostic.
  *
  * Hand-written and dependency-free: it is a handful of well-defined requests,
  * and pulling in a whole authentication library for this would add more
  * surface than the code it replaces.
  *
- * Two addresses for the same Authentik, on purpose:
+ * NO PROVIDER URL SHAPES LIVE HERE. Every endpoint comes from the provider's
+ * own discovery document (`<issuer>/.well-known/openid-configuration`), so
+ * this file works against Authentik, Keycloak or anything else that speaks
+ * OIDC. It used to hardcode `/application/o/...`, which is Authentik's shape:
+ * the app was portable in theory and stuck in practice.
  *
- *   PUBLIC     the one the browser is sent to (auth.kaicorplabs.com). It has to
- *              be reachable from the phone of whoever is signing in.
- *   INTERNAL   the one this server uses to redeem the code and read the user's
- *              details (127.0.0.1). No point going out to the internet and back
- *              to talk to a process on the same machine.
+ * Two addresses for the same provider, on purpose:
+ *
+ *   PUBLIC     where the browser is sent. It has to be reachable from the
+ *              phone of whoever is signing in. Taken from the issuer.
+ *   INTERNAL   where this server redeems the code and reads the user's
+ *              details. No point going out to the internet and back to talk
+ *              to a process on the same machine.
+ *
+ * Discovery is fetched over the INTERNAL address and each endpoint is then
+ * pointed at the address its caller can actually reach — the paths are the
+ * provider's, the hosts are ours. That is the whole trick.
  *
  * The ID token is NOT signature-checked: it arrives from the token endpoint in
  * a direct server-to-server call, which is the case where the specification
@@ -21,13 +31,15 @@
 import { createHash, randomBytes } from "crypto";
 
 export interface OidcConfig {
-  publicBase: string;
-  internalBase: string;
+  /** Public issuer URL, exactly as the provider advertises it. */
+  issuer: string;
+  /** Origin the browser is sent to. Derived from the issuer. */
+  publicOrigin: string;
+  /** Origin this server uses. Falls back to the public one. */
+  internalOrigin: string;
   clientId: string;
   clientSecret: string;
   redirectUri: string;
-  /** Slug de la aplicación en el proveedor. Solo lo usa el cierre de sesión. */
-  appSlug: string;
 }
 
 function validUrl(raw: string | undefined, publicFacing: boolean): string | null {
@@ -48,20 +60,25 @@ function validUrl(raw: string | undefined, publicFacing: boolean): string | null
 export function oidcConfig(): OidcConfig | null {
   const clientId = process.env.DOCDROP_OIDC_CLIENT_ID?.trim();
   const clientSecret = process.env.DOCDROP_OIDC_CLIENT_SECRET?.trim();
-  const publicBase = validUrl(process.env.DOCDROP_OIDC_PUBLIC_BASE?.trim(), true);
-  const internalBase = validUrl(
-    process.env.DOCDROP_OIDC_INTERNAL_BASE?.trim() || publicBase || undefined,
+  // El emisor es la única dirección del proveedor que hace falta: todo lo
+  // demás se le pregunta a él. Sin valor por defecto, como el resto: un
+  // despliegue ajeno no debe heredar el proveedor de nadie.
+  const issuer = validUrl(process.env.DOCDROP_OIDC_ISSUER?.trim(), true);
+  const internalOrigin = validUrl(
+    process.env.DOCDROP_OIDC_INTERNAL_BASE?.trim() || (issuer ? new URL(issuer).origin : undefined),
     false
   );
   const redirectUri = validUrl(process.env.DOCDROP_OIDC_REDIRECT_URI?.trim(), true);
-  const appSlug = (process.env.DOCDROP_OIDC_APP_SLUG ?? "docdrop")
-    .trim()
-    .replace(/^\/+|\/+$/g, "");
 
-  if (!clientId || !clientSecret || !publicBase || !internalBase || !redirectUri || !appSlug) {
-    return null;
-  }
-  return { publicBase, internalBase, clientId, clientSecret, redirectUri, appSlug };
+  if (!clientId || !clientSecret || !issuer || !internalOrigin || !redirectUri) return null;
+  return {
+    issuer,
+    publicOrigin: new URL(issuer).origin,
+    internalOrigin,
+    clientId,
+    clientSecret,
+    redirectUri,
+  };
 }
 
 /** With no configuration there is no way in: the app cannot let anybody through. */
@@ -69,17 +86,92 @@ export function oidcConfigured(): boolean {
   return oidcConfig() !== null;
 }
 
-const APP_PATH = "/application/o";
 const configuredOidcTimeout = Number(process.env.DOCDROP_OIDC_TIMEOUT_MS ?? 10_000);
 const OIDC_TIMEOUT_MS = Number.isFinite(configuredOidcTimeout)
   ? Math.min(60_000, Math.max(1_000, configuredOidcTimeout))
   : 10_000;
 
-export function authorizeUrl(
+// ─── Discovery ──────────────────────────────────────────────────────
+export interface OidcEndpoints {
+  authorization: string;
+  token: string;
+  userinfo: string;
+  endSession: string | null;
+  jwks: string | null;
+  /** Los `iss` que se aceptan: el público y el interno. Ver más abajo. */
+  issuers: string[];
+}
+
+const DISCOVERY_TTL_MS = 10 * 60 * 1000;
+let cache: { key: string; at: number; value: OidcEndpoints } | null = null;
+
+/** Cambia el origen de una URL conservando su ruta: el camino lo elige el
+ *  proveedor, la dirección la elegimos nosotros según quién va a llamar. */
+function at(endpoint: string, origin: string): string {
+  const url = new URL(endpoint);
+  const target = new URL(origin);
+  url.protocol = target.protocol;
+  url.host = target.host;
+  return url.toString();
+}
+
+export async function discover(cfg: OidcConfig): Promise<OidcEndpoints> {
+  const key = `${cfg.issuer}|${cfg.internalOrigin}`;
+  if (cache && cache.key === key && Date.now() - cache.at < DISCOVERY_TTL_MS) return cache.value;
+
+  // Se pregunta por la pata interna: es la misma respuesta y no sale a la red.
+  const url = `${at(cfg.issuer, cfg.internalOrigin).replace(/\/+$/, "")}/.well-known/openid-configuration`;
+  let doc: Record<string, unknown>;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(OIDC_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`discovery: ${res.status}`);
+    doc = (await res.json()) as Record<string, unknown>;
+  } catch (err) {
+    // Un parpadeo del proveedor no debe tumbar los inicios de sesión mientras
+    // se recuerde algo que funcionaba. Si no hay nada recordado, no hay forma
+    // de construir las URLs y el error sube.
+    if (cache && cache.key === key) return cache.value;
+    throw err;
+  }
+
+  const need = (name: string): string => {
+    const value = doc[name];
+    if (typeof value !== "string" || !value) throw new Error(`discovery: sin ${name}`);
+    return value;
+  };
+  const maybe = (name: string): string | null =>
+    typeof doc[name] === "string" && doc[name] ? (doc[name] as string) : null;
+
+  const advertised = typeof doc.issuer === "string" ? doc.issuer : cfg.issuer;
+  const value: OidcEndpoints = {
+    // Al navegador, por la dirección pública; al servidor, por la interna.
+    authorization: at(need("authorization_endpoint"), cfg.publicOrigin),
+    token: at(need("token_endpoint"), cfg.internalOrigin),
+    userinfo: at(need("userinfo_endpoint"), cfg.internalOrigin),
+    endSession: maybe("end_session_endpoint")
+      ? at(maybe("end_session_endpoint")!, cfg.publicOrigin)
+      : null,
+    jwks: maybe("jwks_uri") ? at(maybe("jwks_uri")!, cfg.internalOrigin) : null,
+    // DOS emisores válidos, y no es laxitud: los tokens que nacen del canje
+    // servidor-a-servidor llevan el `iss` INTERNO, porque esa es la dirección
+    // por la que se pidieron. Aceptar solo el público rechazaría lo que el
+    // propio proveedor manda (visto con el aviso de cierre de sesión).
+    issuers: [...new Set([advertised, at(advertised, cfg.publicOrigin), at(advertised, cfg.internalOrigin)])],
+  };
+  cache = { key, at: Date.now(), value };
+  return value;
+}
+
+/** Solo para las pruebas: obliga a volver a preguntar. */
+export function forgetDiscovery(): void {
+  cache = null;
+}
+
+export async function authorizeUrl(
   cfg: OidcConfig,
   { state, codeChallenge }: { state: string; codeChallenge: string }
-): string {
-  const url = new URL(`${cfg.publicBase}${APP_PATH}/authorize/`);
+): Promise<string> {
+  const url = new URL((await discover(cfg)).authorization);
   url.searchParams.set("client_id", cfg.clientId);
   url.searchParams.set("redirect_uri", cfg.redirectUri);
   url.searchParams.set("response_type", "code");
@@ -90,7 +182,7 @@ export function authorizeUrl(
   return url.toString();
 }
 
-export function endSessionUrl(cfg: OidcConfig): string {
+export async function endSessionUrl(cfg: OidcConfig): Promise<string | null> {
   // Sin `post_logout_redirect_uri` a propósito. Volver a la aplicación
   // exigiría mandar `id_token_hint` —Authentik lo pide, es requisito de
   // certificación OIDC— y eso significaría guardar el id_token de cada
@@ -99,9 +191,10 @@ export function endSessionUrl(cfg: OidcConfig): string {
   // permanente para un detalle estético.
   //
   // Sin él, el proveedor cierra la sesión y deja al usuario en la pantalla
-  // de entrada de KaiCorp Labs, que pide credenciales: exactamente la señal
-  // de que ha salido de verdad.
-  return `${cfg.publicBase}${APP_PATH}/${cfg.appSlug}/end-session/`;
+  // de entrada, que pide credenciales: exactamente la señal de que ha salido
+  // de verdad. Devuelve null si el proveedor no anuncia el endpoint, y ahí
+  // quien llama decide (salir de la aplicación y ya).
+  return (await discover(cfg)).endSession;
 }
 
 // ─── PKCE ───────────────────────────────────────────────────────────
@@ -124,7 +217,8 @@ export async function exchangeCode(
   cfg: OidcConfig,
   { code, verifier }: { code: string; verifier: string }
 ): Promise<OidcIdentity> {
-  const res = await fetch(`${cfg.internalBase}${APP_PATH}/token/`, {
+  const endpoints = await discover(cfg);
+  const res = await fetch(endpoints.token, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -145,7 +239,7 @@ export async function exchangeCode(
   const tokens = (await res.json()) as { access_token?: string };
   if (!tokens.access_token) throw new Error("token endpoint: no access_token");
 
-  const info = await fetch(`${cfg.internalBase}${APP_PATH}/userinfo/`, {
+  const info = await fetch(endpoints.userinfo, {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
     signal: AbortSignal.timeout(OIDC_TIMEOUT_MS),
   });

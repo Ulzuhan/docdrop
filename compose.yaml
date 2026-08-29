@@ -22,7 +22,7 @@ services:
       # DOCDROP_OIDC_CLIENT_ID: ""
       # DOCDROP_OIDC_CLIENT_SECRET: ""
       # DOCDROP_OIDC_REDIRECT_URI: "https://ejemplo/api/auth/callback"
-      # DOCDROP_OIDC_PUBLIC_BASE: "https://auth.ejemplo"
+      # DOCDROP_OIDC_ISSUER: "https://auth.ejemplo/application/o/docdrop/"
       # DOCDROP_OIDC_INTERNAL_BASE: "http://127.0.0.1:9100"
       DOCDROP_MAX_FILE_BYTES: "10737418240"   # 10 GB per file
       DOCDROP_MAX_TOTAL_BYTES: "21474836480"  # 20 GB total
