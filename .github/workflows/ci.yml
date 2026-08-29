@@ -46,6 +46,10 @@ jobs:
 
       - run: npx tsc --noEmit
 
+      # La suite del cifrado no necesita servidor: es el módulo a solas, con el
+      # custodio malicioso como adversario. Si esto falla, nada más importa.
+      - run: npx vitest run
+
       - name: Run the upload-protocol suite against the built server
         run: |
           npm run start &
