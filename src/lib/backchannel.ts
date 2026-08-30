@@ -37,6 +37,26 @@ const EVENTO_CIERRE = "http://schemas.openid.net/event/backchannel-logout";
 /** Margen para relojes que no van exactamente iguales. */
 const MARGEN_S = 120;
 
+/**
+ * Anti-replay de avisos de cierre de sesión.
+ *
+ * La caché vive en la memoria del proceso, y aquí eso basta: hay un solo
+ * contenedor por servicio y estos avisos duran segundos, no días. Si algún día
+ * hubiera dos réplicas habría que llevarla a un sitio común; lo peor que pasa
+ * mientras tanto es aceptar el reenvío de un aviso que ya cerró esa sesión.
+ */
+const REPLAY_TTL_MS = 10 * 60 * 1000;
+const jtiVistos = new Map<string, number>();
+
+function yaVisto(jti: string): boolean {
+  const ahora = Date.now();
+  // Limpieza perezosa: sin esto el mapa crece mientras viva el proceso.
+  for (const [k, caduca] of jtiVistos) if (caduca <= ahora) jtiVistos.delete(k);
+  if (jtiVistos.has(jti)) return true;
+  jtiVistos.set(jti, ahora + REPLAY_TTL_MS);
+  return false;
+}
+
 interface Jwk {
   kid?: string;
   kty?: string;
@@ -135,7 +155,21 @@ export async function verificarCierre(
 
   const ahora = Math.floor(Date.now() / 1000);
   if (typeof carga.exp === "number" && carga.exp + MARGEN_S < ahora) return null;
-  if (typeof carga.iat === "number" && carga.iat - MARGEN_S > ahora) return null;
+
+  // `iat` y `jti` son REQUERIDOS en un Logout Token (OIDC Back-Channel Logout
+  // 1.0 §2.4). Hasta el 30-08 aquí se miraba `iat` sólo SI venía, y `jti` no se
+  // miraba en absoluto: un aviso capturado se podía reenviar mañana y volvería
+  // a cerrar la sesión de esa persona. No es una escalada —cerrar la sesión de
+  // otro no es entrar en ella—, pero cerrarlo sale gratis.
+  //
+  // Antes de exigirlos se comprobó que el proveedor los manda de verdad
+  // (`create_logout_token` de Authentik pone iss, aud, iat, exp, jti y events).
+  // Exigir un claim que el proveedor no envía es apagar el cierre de sesión sin
+  // que nadie se entere, que es el fallo que esto pretende evitar.
+  if (typeof carga.iat !== "number") return null;
+  if (carga.iat - MARGEN_S > ahora) return null;
+  const jti = typeof carga.jti === "string" ? carga.jti.trim() : "";
+  if (!jti) return null;
 
   // Que sea de verdad un aviso de cierre y no otro token del mismo emisor
   // reenviado aquí.
@@ -150,6 +184,12 @@ export async function verificarCierre(
   const sub = typeof carga.sub === "string" ? carga.sub : undefined;
   const sid = typeof carga.sid === "string" ? carga.sid : undefined;
   if (!sub && !sid) return null;
+
+  // El anti-replay va EL ÚLTIMO a propósito: sólo se apunta un `jti` que ya ha
+  // pasado todas las comprobaciones. Si se apuntara antes, cualquiera podría
+  // envenenar la caché con tokens inválidos y bloquear el cierre de sesión de
+  // verdad cuando llegara.
+  if (yaVisto(jti)) return null;
 
   return { sub, sid };
 }

@@ -21,6 +21,44 @@ import { findBySub } from "@/lib/users";
  * si el token no vale. Nada de 401/403, que harían que el proveedor reintentara
  * eternamente algo que nunca va a mejorar.
  */
+/**
+ * Un Logout Token son unos cientos de bytes; 16 KiB es holgado de sobra.
+ *
+ * POR QUÉ HACE FALTA ESCRIBIRLO: este endpoint es público y no autenticado —lo
+ * tiene que ser, lo llama el proveedor—, y `request.text()` se traga entero lo
+ * que le manden. App Router no trae límite de cuerpo (eso era `api.bodyParser`
+ * del Pages Router), así que sin esto un cuerpo enorme se acumula en memoria.
+ * El contenedor tiene tope de memoria y como mucho se reinicia, pero un
+ * reinicio provocable desde fuera es una palanca que no hay por qué regalar.
+ *
+ * Se mira la cabecera Y se cuenta lo que llega: `Content-Length` lo pone quien
+ * llama, y quien llama puede mentir.
+ */
+const LIMITE_CUERPO = 16 * 1024;
+
+async function cuerpoAcotado(request: Request): Promise<string | null> {
+  const declarado = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declarado) && declarado > LIMITE_CUERPO) return null;
+
+  const lector = request.body?.getReader();
+  if (!lector) return "";
+
+  const trozos: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await lector.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > LIMITE_CUERPO) {
+      await lector.cancel();
+      return null;
+    }
+    trozos.push(value);
+  }
+  return Buffer.concat(trozos).toString("utf8");
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   const cfg = oidcConfig();
   if (!cfg) return NextResponse.json({ error: "not_configured" }, { status: 404 });
@@ -30,9 +68,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "unsupported_media_type" }, { status: 400 });
   }
 
+  const cuerpo = await cuerpoAcotado(request);
+  if (cuerpo === null) {
+    return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
+  }
+
   let token: string | null = null;
   try {
-    token = new URLSearchParams(await request.text()).get("logout_token");
+    token = new URLSearchParams(cuerpo).get("logout_token");
   } catch {
     token = null;
   }

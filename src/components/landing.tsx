@@ -25,7 +25,7 @@ export function Landing() {
             variant="ghost"
             size="sm"
             className="h-9"
-            render={<Link href="/api/auth/login">Sign in</Link>}
+            render={<Link href="/api/auth/login" prefetch={false}>Sign in</Link>}
           />
         }
       />
@@ -53,7 +53,7 @@ export function Landing() {
                 {enrollUrl && (
                   <Button size="lg" className="h-12 px-7 text-base" render={<Link href={enrollUrl}>Request an account</Link>} />
                 )}
-                <Button size="lg" variant="outline" className="h-12 px-7 text-base" render={<Link href="/api/auth/login">Sign in</Link>} />
+                <Button size="lg" variant="outline" className="h-12 px-7 text-base" render={<Link href="/api/auth/login" prefetch={false}>Sign in</Link>} />
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Got a guest link instead? Open it — it works without an account.
@@ -109,7 +109,7 @@ export function Landing() {
               enrollUrl ? (
                 <Link href={enrollUrl}>Request an account</Link>
               ) : (
-                <Link href="/api/auth/login">Sign in</Link>
+                <Link href="/api/auth/login" prefetch={false}>Sign in</Link>
               )
             }
           />

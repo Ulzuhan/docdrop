@@ -111,6 +111,21 @@ check("con nonce, que la especificación prohíbe",
   (await avisar(firmar({ carga: { nonce: "n" } }))).status, 400);
 check("sin sub ni sid, no dice a quién echar",
   (await avisar(firmar({ carga: { sub: undefined, sid: undefined } }))).status, 400);
+// `iat` y `jti` son REQUERIDOS por la especificación (§2.4) y hasta el 30-08
+// aquí no se exigían: `iat` sólo se miraba si venía, y `jti` ni se miraba.
+check("sin iat, que la especificación exige",
+  (await avisar(firmar({ carga: { iat: undefined } }))).status, 400);
+check("sin jti, que la especificación exige",
+  (await avisar(firmar({ carga: { jti: undefined } }))).status, 400);
+
+// El cuerpo va acotado: este endpoint es público y no autenticado por
+// definición —lo llama el proveedor—, y App Router no trae límite de tamaño.
+const enorme = await fetch(`${BASE}/api/auth/backchannel-logout`, {
+  method: "POST",
+  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  body: `logout_token=${"A".repeat(64 * 1024)}`,
+});
+check("un cuerpo de 64 KiB se rechaza sin leerlo entero", enorme.status, 413);
 
 console.log("\nEl aviso bueno");
 const bueno = await avisar(firmar());
@@ -121,6 +136,13 @@ check("y no intenta poner ninguna cookie", bueno.headers.get("set-cookie"), null
 // echar, pero no hay nada que reintentar tampoco.
 check("un sub desconocido se acepta igualmente",
   (await avisar(firmar({ carga: { sub: `nadie-${randomUUID()}` } }))).status, 200);
+
+// Anti-replay: el MISMO token dos veces. El primero vale; el segundo no, aunque
+// su firma siga siendo buena y no haya caducado. Sin esto, un aviso capturado
+// se podía reenviar mañana para volver a echar a esa persona.
+const repetido = firmar({ carga: { sub: `nadie-${randomUUID()}` } });
+check("el mismo aviso, la primera vez", (await avisar(repetido)).status, 200);
+check("y el mismo aviso repetido, ya no", (await avisar(repetido)).status, 400);
 
 /* ══════════════════════════════════════════════════════════════════════
    Y lo único que de verdad importa: que una sesión VIVA se cierre.
