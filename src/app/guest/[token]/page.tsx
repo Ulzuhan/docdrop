@@ -6,7 +6,7 @@ import { FileUp, LinkIcon, Loader2 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UploadQueue, useUploadQueue } from "@/components/upload-queue";
-import { UploaderNameField } from "@/components/uploader-name-field";
+import { EncryptionChoice } from "@/components/encryption-choice";
 import { formatRemaining } from "@/lib/format";
 import { GUEST_UPLOAD_TTL_HOURS } from "@/lib/guest-shared";
 
@@ -35,9 +35,11 @@ export default function GuestPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
 
+  const [encrypt, setEncrypt] = useState(true);
   const { items, enqueue, cancel, clearFinished } = useUploadQueue({
     ttlHours: GUEST_UPLOAD_TTL_HOURS,
     maxDownloads: 0,
+    encrypt,
     onCompleted: () => {},
     headers: { "x-docdrop-guest": token },
     // Mid-upload expiry or revocation: the guest gets told, not bounced to a
@@ -172,8 +174,11 @@ export default function GuestPage() {
                 </button>
               </div>
 
+              <div className="mx-auto mt-4 max-w-sm">
+                <EncryptionChoice value={encrypt} onChange={setEncrypt} />
+              </div>
+
               <div className="mt-4 flex items-center justify-center gap-2">
-                <UploaderNameField />
                 {items.some((i) => i.state === "uploading") && (
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Loader2 className="size-3.5 animate-spin" aria-hidden />

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
-import { blobPath, claimDownload, contentDisposition, isValidId, retireIfExhausted } from "@/lib/store";
+import { blobPath, claimDownload, contentDisposition, isValidId, type ClaimResult } from "@/lib/store";
 import { createZipStream, uniqueNames, type ZipEntry } from "@/lib/zip";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
@@ -43,11 +43,11 @@ export async function GET(request: NextRequest) {
   const entries: ZipEntry[] = [];
   // Los que sí se reclamaron. No vale recorrer `ids` por índice después: los que
   // fallan no entran en `entries`, y las posiciones dejarían de corresponderse.
-  const reclamados: string[] = [];
+  const reclamados: Extract<ClaimResult, { ok: true }>[] = [];
   for (const id of ids) {
     const claim = await claimDownload(id);
     if (!claim.ok) continue;
-    reclamados.push(id);
+    reclamados.push(claim);
     entries.push({
       name: claim.meta.originalName,
       path: blobPath(id),
@@ -75,16 +75,17 @@ export async function GET(request: NextRequest) {
 
   const zip = createZipStream(entries);
 
-  // La descarga individual retira el fichero cuando el envío termina; esta ruta
-  // no lo hacía. `claimDownload()` ya había descontado la descarga, así que el
-  // contador quedaba a cero pero los bytes seguían en disco hasta que alguien
-  // volviera a pedirlo o pasara el barrido. En una herramienta cuyo trato es
-  // "se borra solo", esa diferencia importa.
-  //
-  // `close` y no `end`: salta también si el cliente corta a mitad, y ahí la
-  // descarga ya está contada igualmente.
+  // Cada fichero del archivo cuenta como descargado cuando el archivo entero
+  // ha salido; si el cliente corta a mitad, ninguno cuenta y todos sueltan su
+  // plaza. Es la misma regla que la descarga individual (claimDownload), y lo
+  // que retira del disco al que agotó su cupo.
+  let entero = false;
+  zip.on("end", () => {
+    entero = true;
+    for (const claim of reclamados) void claim.done(true).catch(() => {});
+  });
   zip.on("close", () => {
-    for (const id of reclamados) void retireIfExhausted(id).catch(() => {});
+    if (!entero) for (const claim of reclamados) void claim.done(false).catch(() => {});
   });
 
   return new NextResponse(Readable.toWeb(zip) as unknown as ReadableStream, {

@@ -197,13 +197,19 @@ whose access token is still alive.
 
 ## End-to-end encryption
 
-Every new upload is encrypted **in the browser**, before the first byte leaves it.
-What the server stores is ciphertext under the neutral name `encrypted`; the content,
-the real filename and the MIME type are inside the encrypted envelope. The key is
-32 random bytes that travel in the **link's `#fragment`** — the part of a URL a
-browser never sends to any server — so knowing the link *is* holding the key, and
+Uploads are encrypted **in the browser** by default, before the first byte leaves
+it. What the server stores is ciphertext under the neutral name `encrypted`; the
+content, the real filename and the MIME type are inside the encrypted envelope. The
+key is 32 random bytes that travel in the **link's `#fragment`** — the part of a URL
+a browser never sends to any server — so knowing the link *is* holding the key, and
 the server operator cannot open what they host. This is the same deal SecretDrop
 offers for text, applied to files.
+
+It is a choice per upload, and the control says what each side costs. Off, the
+server can read the file — and in return it can preview it, zip it, and the link
+has no key to lose. On (the default), the recipient still sees the real name, type
+and size before downloading: `/api/info` hands out the encrypted header of the
+bulk, which only the key in the link can open.
 
 How it works, briefly:
 
@@ -218,17 +224,32 @@ How it works, briefly:
   from the keyring, not the server) and why another device shows the same files
   without names. Losing the link and the browser profile loses the file: there is
   no recovery, by design.
-- **Downloads stream through a service worker.** The page decrypts chunk by chunk
-  and hands bytes to the browser's native download, with backpressure — a
-  multi-gigabyte file never sits whole in memory. Browsers without a controlling
-  worker fall back to in-memory decryption, with a warning above 1.5 GiB.
+- **Downloads stream through a service worker where that works** — Chromium on
+  desktop and Android. The page decrypts chunk by chunk and hands bytes to the
+  browser's native download, with backpressure — a multi-gigabyte file never sits
+  whole in memory. Safari, everything on iOS and browsers embedded in other apps
+  decrypt in memory instead and end with a **Save** button (the share sheet on
+  iOS), with a warning above 1.5 GiB. If the streaming path fails before the first
+  byte, the page falls back to memory on its own.
+- **A download counts once it has fully arrived.** The counter used to move when
+  the request came in, and the first real transfer to a phone showed the cost:
+  the download failed on the recipient's side and the file's only allowed
+  download was gone. A request in flight still holds its place against the limit,
+  so two people opening a one-download link at once still get one file between
+  them.
 - **Guest uploads encrypt too**, which has a human consequence: the key is born in
   the *guest's* browser, so the finished upload shows a prominent screen telling
   them to send the full link back to whoever asked for the file — that link holds
   the only key. Skipping that step makes the file unrecoverable for everyone.
 - **What stays visible to the server**: approximate size, upload time, expiry,
   download count, and who owns the file. Encrypted files are excluded from the
-  server-side ZIP (it would package unopenable ciphertext) and from previews.
+  server-side ZIP (it would package unopenable ciphertext) and from server-side
+  previews; images, video and audio preview in the recipient's browser once
+  decrypted.
+- **Who uploaded it is the account, not a typed name.** The label a recipient sees
+  comes from the signed-in account, or from the label the account gave a guest
+  link. There is no field to type a name into, so nobody can sign as somebody
+  else.
 
 Files uploaded before this existed remain as they were stored; they are served
 untouched and age out through their own expiry.

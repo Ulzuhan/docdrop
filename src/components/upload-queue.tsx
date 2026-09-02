@@ -17,7 +17,6 @@ import {
   consolidarClave,
   fuenteCifrada,
 } from "@/lib/e2ee-client";
-import { getUploaderName } from "@/lib/uploader-name";
 
 type ItemState = "pending" | "uploading" | "done" | "error" | "cancelled";
 
@@ -28,12 +27,14 @@ export interface QueueItem {
   loaded: number;
   resumed: boolean;
   error?: string;
-  result?: UploadResult;
+  result?: UploadResult & { encrypted: boolean };
 }
 
 interface Props {
   ttlHours: number;
   maxDownloads: number;
+  /** Encrypt in the browser before the first byte leaves it. The default. */
+  encrypt: boolean;
   onCompleted: () => void;
   /** Extra headers on every upload request — how the guest page authenticates. */
   headers?: Record<string, string>;
@@ -56,6 +57,7 @@ export interface UploadQueueHandle {
 export function useUploadQueue({
   ttlHours,
   maxDownloads,
+  encrypt,
   onCompleted,
   headers,
   onUnauthorized,
@@ -70,11 +72,11 @@ export function useUploadQueue({
   const wakeLock = useRef<WakeLockSentinel | null>(null);
   // Options are read when each upload starts, not when it is queued: changing them
   // affects whatever is still pending without rebuilding the queue.
-  const optionsRef = useRef({ ttlHours, maxDownloads });
+  const optionsRef = useRef({ ttlHours, maxDownloads, encrypt });
 
   useEffect(() => {
-    optionsRef.current = { ttlHours, maxDownloads };
-  }, [ttlHours, maxDownloads]);
+    optionsRef.current = { ttlHours, maxDownloads, encrypt };
+  }, [ttlHours, maxDownloads, encrypt]);
 
   const commit = useCallback((next: QueueItem[]) => {
     queue.current = next;
@@ -138,24 +140,40 @@ export function useUploadQueue({
       void acquireWakeLock();
 
       /**
-       * Cifrado SIEMPRE, sin interruptor — como SecretDrop. La clave nace aquí,
-       * se apunta al llavero antes del primer byte (una reanudación con clave
-       * perdida produciría un bulto Frankenstein, así que la clave se persiste
-       * primero), y al completar pasa a colgar del id del fichero.
+       * Cifrado por defecto, con interruptor. Cuando va cifrado, la clave nace
+       * aquí, se apunta al llavero antes del primer byte (una reanudación con
+       * clave perdida produciría un bulto Frankenstein, así que la clave se
+       * persiste primero), y al completar pasa a colgar del id del fichero.
+       *
+       * Sin cifrar, el transporte recibe el fichero tal cual: el servidor lo
+       * puede leer, previsualizar y meter en un zip, y el enlace no lleva
+       * ninguna mitad secreta que perder. Es una elección de quien sube, y la
+       * interfaz dice claramente cuál es el precio de cada lado.
        *
        * `fuenteCifrada` es asíncrona (cifra la cabecera), así que el mango se
        * monta en dos tiempos: la promesa exterior encadena fuente → transporte,
        * y `abort` se re-apunta al transporte real en cuanto existe.
        */
       const ctl: { abort: () => void } = { abort: () => {} };
-      const promesa = (async () => {
+      const cifrar = optionsRef.current.encrypt;
+      const promesa: Promise<UploadResult & { encrypted: boolean }> = (async () => {
+        if (!cifrar) {
+          const interno = uploadFileInChunks(file, {
+            ttlHours: optionsRef.current.ttlHours,
+            maxDownloads: optionsRef.current.maxDownloads,
+            onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
+            headers,
+          });
+          ctl.abort = interno.abort;
+          const resultado = await interno.promise;
+          return { ...resultado, encrypted: false };
+        }
         const clavePrevia = claveEnVuelo(file) ?? undefined;
         const fuente = await fuenteCifrada(file, clavePrevia);
         apuntarClaveEnVuelo(file, fuente.fragmento);
         const interno = uploadFileInChunks(file, {
           ttlHours: optionsRef.current.ttlHours,
           maxDownloads: optionsRef.current.maxDownloads,
-          uploadedBy: getUploaderName() || undefined,
           onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
           headers,
           fuente,
@@ -169,12 +187,13 @@ export function useUploadQueue({
           ...resultado,
           originalName: file.name,
           downloadUrl: `${resultado.downloadUrl}#${fuente.fragmento}`,
+          encrypted: true,
         };
       })();
       const handle: UploadHandle = { promise: promesa, abort: () => ctl.abort() };
       handles.current.set(key, handle);
 
-      handle.promise
+      promesa
         .then((result) => {
           update(key, { state: "done", result, loaded: result.size });
           toast.success("Uploaded", { description: file.name });
@@ -371,7 +390,14 @@ export function UploadQueue({
                 <Progress value={pct} className="mt-2 h-1" />
               )}
 
-              {modoInvitado && item.state === "done" && item.result && (
+              {modoInvitado && item.state === "done" && item.result && !item.result.encrypted && (
+                <p className="mt-3 rounded-xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  Uploaded. Whoever gave you this link already sees it in their DocDrop and
+                  can download it from there — nothing else to send.
+                </p>
+              )}
+
+              {modoInvitado && item.state === "done" && item.result && item.result.encrypted && (
                 /* La pantalla que docs/24 exige que sea imposible de ignorar:
                    este enlace ES el fichero. El servidor guarda un bulto que no
                    puede abrir, y la única clave está aquí, en este navegador,

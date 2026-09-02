@@ -97,8 +97,8 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
             {nombre}
           </p>
           {sinClave && (
-            <p className="text-xs text-muted-foreground">
-              key lives in the browser it was uploaded from
+            <p className="text-xs text-warning">
+              The key is in the browser it was uploaded from — share it from there.
             </p>
           )}
 
@@ -130,9 +130,16 @@ export function FileRow({ file, now, onDeleted, selected, onToggle }: Props) {
           >
             {remaining}
           </Badge>
-          <ShareButton path={ruta} title={nombre} />
-          <QrDialog path={ruta} filename={nombre} />
-          <CopyLinkButton path={ruta} variant="ghost" className="size-9" />
+          {/* Sin clave no hay nada que compartir: un enlace sin su mitad
+              secreta abre una pantalla de «falta la clave», y así es como el
+              primer envío real se fue por WhatsApp sin poder abrirse. */}
+          {!sinClave && (
+            <>
+              <ShareButton path={ruta} title={nombre} />
+              <QrDialog path={ruta} filename={nombre} />
+              <CopyLinkButton path={ruta} variant="ghost" className="size-9" />
+            </>
+          )}
           <Button
             render={<a href={file.encrypted ? ruta : `/api/download/${file.id}`} />}
             variant="ghost"

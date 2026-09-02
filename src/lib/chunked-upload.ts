@@ -141,8 +141,6 @@ function putPart(
 export interface UploadOptions {
   ttlHours: number;
   maxDownloads?: number;
-  /** Informational uploader label. */
-  uploadedBy?: string;
   onProgress?: (progress: Progress) => void;
   /** Chunks sent at once. More than one uses the link better. */
   concurrency?: number;
@@ -204,7 +202,6 @@ export function uploadFileInChunks(file: File, options: UploadOptions): UploadHa
             : file.type || "application/octet-stream",
           ttlHours: options.ttlHours,
           maxDownloads: options.maxDownloads ?? 0,
-          uploadedBy: options.uploadedBy,
           encrypted: Boolean(fuente),
         }),
       });

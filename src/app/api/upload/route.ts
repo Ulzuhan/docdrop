@@ -13,7 +13,6 @@ import {
   deleteEntry,
   generateId,
   sanitizeFilename,
-  sanitizeUploader,
   reservarEspacio,
   soltarEspacio,
   writeMeta,
@@ -38,7 +37,6 @@ import { isSameOriginMutation } from "@/lib/request-origin";
  *   x-filename       original name, percent-encoded (UTF-8)
  *   x-ttl-hours      hours until self-destruction (1..720)
  *   x-max-downloads  0 = unlimited
- *   x-uploaded-by    optional uploader label, percent-encoded
  *
  * This used to call request.formData(), which materialises the whole file in memory:
  * with the advertised 10 GB limit the process died long before getting there (Node's
@@ -157,13 +155,8 @@ export async function POST(request: NextRequest) {
       expiresAt: now + ttlHours * 60 * 60 * 1000,
       downloadCount: 0,
       maxDownloads,
-      uploadedBy: account
-        ? displayName(account)
-        : sanitizeUploader(
-            request.headers.get("x-uploaded-by")
-              ? decodeURIComponent(request.headers.get("x-uploaded-by")!)
-              : undefined
-          ) ?? guest?.label,
+      // The account's name, or the guest link's label. Never what the client says.
+      uploadedBy: account ? displayName(account) : guest?.label,
       // La credencial, no la etiqueta: lo subido por cuenta es de esa cuenta, y
       // lo subido por un enlace de invitado, de quien emitió el enlace.
       owner: account ? `user:${account.id}` : guest ? await ownerForGuestToken(guest.token) : undefined,

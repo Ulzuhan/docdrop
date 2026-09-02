@@ -41,7 +41,6 @@ export async function POST(request: NextRequest) {
     mimeType?: unknown;
     ttlHours?: unknown;
     maxDownloads?: unknown;
-    uploadedBy?: unknown;
   } = cuerpo;
 
   const filename = typeof body.filename === "string" ? body.filename : "";
@@ -62,18 +61,17 @@ export async function POST(request: NextRequest) {
   // check, so two uploads starting at once cannot both claim the last free gigabyte.
   // A guest's files expire sooner (MAX_GUEST_FILE_TTL_HOURS): the cap is enforced
   // here rather than trusted to the guest page, because the API is reachable with
-  // the bare token. The label of the link doubles as the uploader name when the
-  // guest did not give one, so the listing shows whom the file came from.
+  // the bare token. A guest's files are labelled with the label of their link,
+  // which the account that issued it chose.
   const ttlHours = guest
     ? Math.min(clampTtlHours(body.ttlHours), MAX_GUEST_FILE_TTL_HOURS)
     : body.ttlHours;
   // Somebody with an account is labelled with it; a guest, with the label of
-  // their link. The name sent by the client is only honoured when there is no
-  // account behind the upload, because then it is all there is.
+  // their link. Nothing the client types reaches this field any more: a
+  // free-text name next to a mandatory sign-in was only good for pretending to
+  // be somebody else in the listing.
   const account = guest ? null : await currentUser();
-  const uploadedBy = account
-    ? displayName(account)
-    : (body.uploadedBy ?? (guest ? guest.label : undefined));
+  const uploadedBy = account ? displayName(account) : guest?.label;
 
   // Quién abre esta subida, para que nadie más pueda meterse en ella. Sale de lo
   // que ya se ha resuelto arriba y no de una segunda consulta. Si no hay ni

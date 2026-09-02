@@ -116,10 +116,54 @@ export async function fuenteCifrada(file: File, claveExistente?: Uint8Array): Pr
 
 // ─── La descarga en flujo, vía service worker ───────────────────────────────
 
-/** Si este navegador puede descifrar hacia disco sin pasar por la memoria. */
-export function descargaEnFlujoDisponible(): boolean {
-  return typeof navigator !== "undefined" && Boolean(navigator.serviceWorker?.controller);
+/** iPhone e iPad, con el iPad moderno que se hace pasar por Mac. */
+export function esIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
+
+/**
+ * Navegadores que no convierten en descarga una navegación servida por un
+ * service worker: todo WebKit (en iOS lo es hasta Chrome) y los navegadores
+ * incrustados en otras apps. Se detectan por el agente de usuario porque no
+ * hay otra forma: la API existe en todos y en estos no hace nada, sin error.
+ */
+export function entornoSinFlujo(): boolean {
+  if (typeof navigator === "undefined") return true;
+  const ua = navigator.userAgent;
+  if (esIOS()) return true;
+  const webkit = /AppleWebKit/.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/.test(ua);
+  const incrustado = /\bwv\b|FBAN|FBAV|Instagram|Line\/|WhatsApp|Twitter|MicroMessenger|Snapchat/i.test(ua);
+  return webkit || incrustado;
+}
+
+/**
+ * Si este navegador puede descifrar hacia disco sin pasar por la memoria.
+ *
+ * Tener un service worker no basta, y es lo que se creía: el primer envío
+ * real a un iPhone llegó con la clave entera y se quedó en «Decrypting…»
+ * porque Safari no convierte la navegación del iframe en una descarga. Ahí se
+ * va por memoria, que es lo que docs/24 decía y el código no hacía.
+ */
+export function descargaEnFlujoDisponible(): boolean {
+  return typeof navigator !== "undefined" &&
+    Boolean(navigator.serviceWorker?.controller) &&
+    !entornoSinFlujo();
+}
+
+/**
+ * Cómo falló el camino en flujo. `antesDelPrimerByte` es lo que decide si se
+ * puede reintentar en memoria sin riesgo: no ha nacido ninguna descarga.
+ */
+export class FalloFlujo extends Error {
+  constructor(message: string, public readonly antesDelPrimerByte: boolean, public readonly estado?: number) {
+    super(message);
+  }
+}
+
+/** El worker tiene que contestar; si no lo hace, la página no espera para siempre. */
+const ESPERA_WORKER = 8_000;
 
 /**
  * Descifra un bulto de cualquier tamaño directamente hacia el disco.
@@ -142,12 +186,12 @@ export async function descargarEnFlujo(
   onProgress?: (bytes: number, total: number) => void
 ): Promise<{ nombre: string }> {
   const controlador = navigator.serviceWorker?.controller;
-  if (!controlador) throw new Error("no service worker");
+  if (!controlador) throw new FalloFlujo("no service worker", true);
 
   const res = await fetch(`/api/download/${id}`);
-  if (!res.ok || !res.body) throw new Error(`download ${res.status}`);
+  if (!res.ok || !res.body) throw new FalloFlujo(`download ${res.status}`, true, res.status);
   const abierto = await abrirFlujo(clave, res.body);
-  if (!abierto) throw new Error("formato");
+  if (!abierto) throw new FalloFlujo("formato", true);
   const { cabecera, datos } = abierto;
 
   const token = globalThis.crypto.randomUUID();
@@ -162,6 +206,14 @@ export async function descargarEnFlujo(
     fallar = rej2;
   });
 
+  // Dos plazos: que el worker diga «listo», y que el navegador empiece a
+  // tirar. Si cualquiera vence antes del primer byte, el bulto sigue intacto
+  // en la respuesta y la página puede descifrarlo en memoria.
+  let plazo = setTimeout(() => {
+    void lector.cancel().catch(() => {});
+    fallar(new FalloFlujo("sw-timeout", servido === 0));
+  }, ESPERA_WORKER);
+
   canal.port1.onmessage = async (event) => {
     const m = event.data as { tipo: string };
     if (m.tipo === "listo") {
@@ -171,9 +223,15 @@ export async function descargarEnFlujo(
       iframe.src = `/descarga-local/${token}`;
       document.body.appendChild(iframe);
       setTimeout(() => iframe.remove(), 60_000);
+      clearTimeout(plazo);
+      plazo = setTimeout(() => {
+        void lector.cancel().catch(() => {});
+        fallar(new FalloFlujo("sw-timeout", servido === 0));
+      }, ESPERA_WORKER);
       return;
     }
     if (m.tipo === "pide") {
+      clearTimeout(plazo);
       try {
         const { value, done } = await lector.read();
         if (done) {
@@ -187,11 +245,12 @@ export async function descargarEnFlujo(
         canal.port1.postMessage({ tipo: "bytes", bytes: value.buffer }, [value.buffer]);
       } catch (error) {
         canal.port1.postMessage({ tipo: "error", motivo: "decrypt failed" });
-        fallar(error);
+        fallar(new FalloFlujo(error instanceof Error ? error.message : "decrypt failed", servido === 0));
       }
       return;
     }
     if (m.tipo === "cancelado") {
+      clearTimeout(plazo);
       void lector.cancel().catch(() => {});
       fallar(new Error("cancelled"));
     }

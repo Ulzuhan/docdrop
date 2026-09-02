@@ -11,7 +11,6 @@ import {
   isValidId,
   readMeta,
   registerTransfer,
-  retireIfExhausted,
 } from "@/lib/store";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/ratelimit";
 
@@ -22,8 +21,9 @@ const GONE = { expired: "File expired", exhausted: "Max downloads reached" } as 
  *
  * Notable behaviour:
  *  - Streamed, not buffered: readFile() used to pull the whole file into memory.
- *  - The download counter is incremented in a serialised way (see claimDownload);
- *    two simultaneous downloads used to be able to slip past the limit.
+ *  - The download counter moves when the last byte has gone out (see claimDownload):
+ *    a transfer that is cut short does not burn anybody's quota, and a request in
+ *    flight still holds its place so two at once cannot slip past the limit.
  *  - Range requests are supported, so large downloads can be resumed; continuing a
  *    transfer that was already counted does not count as a new download.
  *  - Content-Length comes from the real file, not from the size stored in meta.json.
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
     headers.set("Content-Length", String(end - start + 1));
 
     const partial = createReadStream(blobPath(id), { start, end });
-    if (!preview) partial.on("close", () => void retireIfExhausted(id).catch(() => {}));
+    settleWhenOver(partial, claim.done);
     return new NextResponse(Readable.toWeb(partial) as unknown as ReadableStream, {
       status: 206,
       headers,
@@ -136,12 +136,27 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/download
   headers.set("Content-Length", String(size));
 
   const stream = createReadStream(blobPath(id));
-  // When the transfer ends, if this was the last allowed download, it is burned.
-  // A preview does not consume downloads, so it cannot exhaust them either.
-  if (!preview) stream.on("close", () => void retireIfExhausted(id).catch(() => {}));
+  settleWhenOver(stream, claim.done);
 
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
     status: 200,
     headers,
+  });
+}
+
+/**
+ * `end` means every byte was handed over; `close` without `end` means the
+ * client went away first. Only the first counts as a download — and it is
+ * what burns the entry when it was the last one allowed. A preview or a
+ * continuation carries a no-op `done`, so it can never exhaust anything.
+ */
+function settleWhenOver(stream: NodeJS.ReadableStream, done: (delivered: boolean) => Promise<void>) {
+  let ended = false;
+  stream.on("end", () => {
+    ended = true;
+    void done(true).catch(() => {});
+  });
+  stream.on("close", () => {
+    if (!ended) void done(false).catch(() => {});
   });
 }

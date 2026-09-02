@@ -322,13 +322,47 @@ function serialize<T>(id: string, task: () => Promise<T>): Promise<T> {
 }
 
 export type ClaimResult =
-  | { ok: true; meta: FileMeta }
+  | {
+      ok: true;
+      meta: FileMeta;
+      /**
+       * To be called exactly once when the transfer is over: `delivered` says
+       * whether the last byte went out. Only a delivered transfer counts.
+       */
+      done: (delivered: boolean) => Promise<void>;
+    }
   | { ok: false; reason: "not_found" | "expired" | "exhausted" };
 
 /**
- * Claims a download: checks availability and increments the counter in a serialised
- * way. `count: false` only checks (for continuation Range requests, which are part
- * of a download that was already counted).
+ * A download counts when it has been DELIVERED, not when it was asked for.
+ *
+ * It used to be counted on arrival, and the first real encrypted transfer showed
+ * why that is wrong: the recipient's phone fetched the bulk, failed to turn it
+ * into a saved file, and the only download the link allowed was gone — for a
+ * file nobody had. Now the counter moves when the stream ends; a transfer that
+ * is cut short (client gone, tab closed) releases its place instead.
+ *
+ * What a request in flight DOES take is its place against the limit: while the
+ * last allowed download is being sent, a second request is refused, exactly as
+ * before. Otherwise two people opening the link at once could both get a file
+ * that allowed one download. A place in flight expires on its own after a
+ * while, so a connection that stalls forever cannot block the link forever.
+ */
+const INFLIGHT_TTL = 2 * 60 * 60 * 1000;
+const inflight = new Map<string, number[]>();
+
+function inflightCount(id: string): number {
+  const now = Date.now();
+  const alive = (inflight.get(id) ?? []).filter((at) => now - at < INFLIGHT_TTL);
+  if (alive.length) inflight.set(id, alive);
+  else inflight.delete(id);
+  return alive.length;
+}
+
+/**
+ * Claims a place for a download, serialised per id. `count: false` only checks
+ * availability (previews and continuation Range requests, which belong to a
+ * download that is counted on its own).
  */
 export function claimDownload(id: string, count = true): Promise<ClaimResult> {
   return serialize(id, async () => {
@@ -341,23 +375,33 @@ export function claimDownload(id: string, count = true): Promise<ClaimResult> {
       return { ok: false, reason } as const;
     }
 
-    if (!count) return { ok: true, meta } as const;
+    const nothing = async () => {};
+    if (!count) return { ok: true, meta, done: nothing } as const;
 
-    meta.downloadCount++;
-    await writeMeta(meta);
+    if (meta.maxDownloads > 0 && meta.downloadCount + inflightCount(id) >= meta.maxDownloads) {
+      return { ok: false, reason: "exhausted" } as const;
+    }
 
-    // If this was the last allowed download the content is useless from now on, but
-    // it can't be deleted here: it still has to be sent. retireIfExhausted() does it
-    // once the stream finishes.
-    return { ok: true, meta } as const;
-  });
-}
-
-/** Burns the entry if it ran out of downloads. Called once the transfer is done. */
-export async function retireIfExhausted(id: string): Promise<void> {
-  await serialize(id, async () => {
-    const meta = await readMeta(id);
-    if (meta && !isBurned(meta) && isExhausted(meta)) await burn(id, "exhausted");
+    const started = Date.now();
+    inflight.set(id, [...(inflight.get(id) ?? []), started]);
+    let settled = false;
+    const done = async (delivered: boolean) => {
+      if (settled) return;
+      settled = true;
+      const rest = (inflight.get(id) ?? []).filter((at) => at !== started);
+      if (rest.length) inflight.set(id, rest);
+      else inflight.delete(id);
+      if (!delivered) return;
+      await serialize(id, async () => {
+        const fresh = await readMeta(id);
+        if (!fresh || isBurned(fresh)) return;
+        fresh.downloadCount++;
+        await writeMeta(fresh);
+        // The last allowed download has gone out: the content is useless now.
+        if (isExhausted(fresh)) await burn(id, "exhausted");
+      });
+    };
+    return { ok: true, meta, done } as const;
   });
 }
 

@@ -40,10 +40,25 @@ check("pero el enlace directo le funciona igual: el enlace es el permiso", (awai
 console.log("\nLa autodestrucción");
 const dos = await subir(Buffer.from("se borra a la segunda"), { cookie: a, nombre: "dos.txt", extra: { "x-max-downloads": "2" } });
 check("se puede pedir un tope de descargas", dos.body?.maxDownloads, 2);
+// Una descarga cuenta cuando ha llegado entera (la prueba de una cortada a
+// mitad está en la suite e2ee, con un fichero mayor que los búferes): aquí se
+// consume cada cuerpo, que es lo que la hace contar.
 const codigos = [];
-for (let i = 0; i < 3; i++) codigos.push((await fetch(`${BASE}/api/download/${dos.body.id}`)).status);
-check("dos descargas y a la tercera se acabó", codigos, [200, 200, 410]);
+for (let i = 0; i < 3; i++) {
+  const r = await fetch(`${BASE}/api/download/${dos.body.id}`);
+  codigos.push(r.status);
+  if (r.ok) await r.arrayBuffer(); // consumir entera: es lo que la hace contar
+  await new Promise((rr) => setTimeout(rr, 100));
+}
+check("dos descargas enteras y a la tercera se acabó", codigos, [200, 200, 410]);
 check("y ya no aparece en la lista", (await api("/api/files", { cookie: a })).body.files.some((f) => f.id === dos.body.id), false);
+
+console.log("\nLo que /api/info cuenta, y lo que no");
+const publico = (await api(`/api/info/${id}`)).body;
+check("no dice de quién es el fichero", "owner" in publico, false);
+check("sí dice quién lo subió, por su cuenta", typeof publico.uploadedBy, "string");
+const disfraz = await subir(Buffer.from("firmado como otro"), { cookie: a, nombre: "disfraz.txt", extra: { "x-uploaded-by": "Mallory" } });
+check("el nombre que manda el cliente se ignora: manda la cuenta", (await api(`/api/info/${disfraz.body.id}`)).body.uploadedBy === "Mallory", false);
 
 console.log("\nIdentificadores que vienen de la URL");
 for (const ruta of ["/api/download", "/api/info"]) {

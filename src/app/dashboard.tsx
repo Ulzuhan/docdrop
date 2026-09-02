@@ -9,7 +9,7 @@ import { SiteHeader } from "@/components/site-header";
 import { KaiCorpAccountMenu } from "@/components/kaicorp-account-menu";
 import { FileRow, type FileInfo } from "@/components/file-row";
 import { UploadQueue, useUploadQueue } from "@/components/upload-queue";
-import { UploaderNameField } from "@/components/uploader-name-field";
+import { EncryptionChoice } from "@/components/encryption-choice";
 import { GuestLinksDialog } from "@/components/guest-links-dialog";
 
 const TTL_OPTIONS = [
@@ -41,6 +41,9 @@ export function Dashboard({ email, accountUrl }: { email: string; accountUrl: st
   const [isDragging, setIsDragging] = useState(false);
   const [ttl, setTtl] = useState(24);
   const [maxDownloads, setMaxDownloads] = useState(0);
+  // Cifrado por defecto. Apagarlo es una decisión por subida, y se pide cada
+  // vez: lo seguro no debería depender de lo que alguien eligió otro día.
+  const [encrypt, setEncrypt] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
@@ -57,6 +60,7 @@ export function Dashboard({ email, accountUrl }: { email: string; accountUrl: st
   const { items, enqueue, cancel, clearFinished } = useUploadQueue({
     ttlHours: ttl,
     maxDownloads,
+    encrypt,
     onCompleted: refresh,
   });
 
@@ -298,9 +302,6 @@ Tap to choose files
               {/* Without a password everything is open and a guest link grants
                   nothing a stranger does not already have. */}
               {authEnabled && <GuestLinksDialog />}
-              <div className="sm:ms-auto">
-                <UploaderNameField />
-              </div>
             </div>
 
             {/* Label above control, one group per row. These used to sit inline
@@ -382,6 +383,8 @@ Tap to choose files
                   ))}
                 </div>
               </div>
+
+              <EncryptionChoice value={encrypt} onChange={setEncrypt} />
             </div>
           </div>
 
