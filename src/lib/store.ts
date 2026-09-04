@@ -312,14 +312,15 @@ const chains = new Map<string, Promise<unknown>>();
 function serialize<T>(id: string, task: () => Promise<T>): Promise<T> {
   const prev = chains.get(id) ?? Promise.resolve();
   const next = prev.then(task, task);
-  chains.set(
-    id,
-    next.catch(() => {}).finally(() => {
-      if (chains.get(id) === next) chains.delete(id);
-    })
-  );
+  const tail = next.then(() => {}, () => {}).finally(() => {
+    if (chains.get(id) === tail) chains.delete(id);
+  });
+  chains.set(id, tail);
   return next;
 }
+
+/** Active per-id queues, excluding completed operations. */
+export function pendingDownloads(): number { return chains.size; }
 
 export type ClaimResult =
   | {
@@ -349,11 +350,11 @@ export type ClaimResult =
  * while, so a connection that stalls forever cannot block the link forever.
  */
 const INFLIGHT_TTL = 2 * 60 * 60 * 1000;
-const inflight = new Map<string, number[]>();
+const inflight = new Map<string, { at: number }[]>();
 
 function inflightCount(id: string): number {
   const now = Date.now();
-  const alive = (inflight.get(id) ?? []).filter((at) => now - at < INFLIGHT_TTL);
+  const alive = (inflight.get(id) ?? []).filter(({ at }) => now - at < INFLIGHT_TTL);
   if (alive.length) inflight.set(id, alive);
   else inflight.delete(id);
   return alive.length;
@@ -382,23 +383,27 @@ export function claimDownload(id: string, count = true): Promise<ClaimResult> {
       return { ok: false, reason: "exhausted" } as const;
     }
 
-    const started = Date.now();
+    // Identity must be unique even for claims made in the same millisecond.
+    const started = { at: Date.now() };
     inflight.set(id, [...(inflight.get(id) ?? []), started]);
     let settled = false;
     const done = async (delivered: boolean) => {
       if (settled) return;
       settled = true;
-      const rest = (inflight.get(id) ?? []).filter((at) => at !== started);
-      if (rest.length) inflight.set(id, rest);
-      else inflight.delete(id);
-      if (!delivered) return;
       await serialize(id, async () => {
-        const fresh = await readMeta(id);
-        if (!fresh || isBurned(fresh)) return;
-        fresh.downloadCount++;
-        await writeMeta(fresh);
-        // The last allowed download has gone out: the content is useless now.
-        if (isExhausted(fresh)) await burn(id, "exhausted");
+        try {
+          if (!delivered) return;
+          const fresh = await readMeta(id);
+          if (!fresh || isBurned(fresh)) return;
+          fresh.downloadCount++;
+          await writeMeta(fresh);
+          if (isExhausted(fresh)) await burn(id, "exhausted");
+        } finally {
+          // Keep the reservation until its counter update is committed.
+          const rest = (inflight.get(id) ?? []).filter((entry) => entry !== started);
+          if (rest.length) inflight.set(id, rest);
+          else inflight.delete(id);
+        }
       });
     };
     return { ok: true, meta, done } as const;
@@ -407,9 +412,9 @@ export function claimDownload(id: string, count = true): Promise<ClaimResult> {
 
 // ─── Transfer continuations ─────────────────────────────────────────
 /**
- * A resumed download must not be counted twice: an interrupted transfer picks up
- * with `Range: bytes=<n>-`, and charging for that would burn the quota of anyone on
- * a flaky connection.
+ * A completed response pays for subsequent Range continuations by this client.
+ * An interrupted response does not count and cannot grant free continuations;
+ * its retry must claim and settle its own download slot.
  *
  * The test used to be "the range does not start at byte 0", but that is something
  * the client chooses freely: `Range: bytes=1-` returned everything but the first
@@ -417,8 +422,9 @@ export function claimDownload(id: string, count = true): Promise<ClaimResult> {
  * as asked. maxDownloads was decorative for anyone holding the link.
  *
  * Now only a client that already paid for a download gets free continuations. The
- * entry slides forward while the transfer is alive and expires an hour after the
- * last byte, so coming back much later counts as the new download it is.
+ * entry is recorded only AFTER successful accounting, refreshed on successful
+ * continuation, and expires after an hour. This does not keep exhausted files
+ * alive: once the budget is used, availability checks still reject requests.
  *
  * Caveat: this is keyed by client, and clientIp() collapses to "direct" when there
  * is no proxy in front (see ratelimit.ts). In that deployment continuations are

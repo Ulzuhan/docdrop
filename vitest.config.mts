@@ -7,6 +7,7 @@ export default defineConfig({
     // que en Node ≥20 es la misma API que en el navegador — probar aquí es
     // probar lo que corre allí.
     environment: "node",
+    setupFiles: ["./tests/setup.ts"],
     include: ["src/**/*.test.ts"],
   },
   resolve: {

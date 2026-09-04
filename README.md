@@ -446,17 +446,25 @@ normal case — the second used to write chunk 0 of the file the first was uploa
 read its document name, complete it and cancel it. The worst part is not the
 nuisance: it is that the file that arrives is not the one that was sent.
 
-`test-ficheros` — 47 checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
+`test-ficheros` — checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
 auto-destruct real, identifiers coming from the URL, and request bodies that do not
-parse.
+parse. It also rejects malformed Range requests before they can grant free
+continuations. CI runs all four HTTP suites through `scripts/run-suites.sh`, each
+against its own temporary store.
 
-`test-e2ee` — 12 checks that the encryption's promise holds **on the server's own
+`test-e2ee` — checks that the encryption's promise holds **on the server's own
 disk**: a marker string is uploaded encrypted and the whole data directory is then
 searched for it and for the real filename (both must be absent), the public info
 endpoint must show only the neutral name, the download must decrypt back to the
 exact bytes, and a wrong key must open nothing. The suite imports the real
 `src/lib/e2ee.ts` (via `--experimental-strip-types`), not a copy — the unit tests
-cover the format's edge cases, this one covers the claim.
+cover the format's edge cases, this one covers the claim. A cancelled download
+must leave its quota available, and a successful Range retry must consume it.
+
+Download accounting settles before the response stream closes. Invalid ranges,
+missing blobs and cancelled responses do not establish free continuations. Only
+a successfully accounted response enables subsequent Range continuations for
+that client while the file remains available; exhausted files are still removed.
 
 ---
 

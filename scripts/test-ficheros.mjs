@@ -53,6 +53,16 @@ for (let i = 0; i < 3; i++) {
 check("dos descargas enteras y a la tercera se acabó", codigos, [200, 200, 410]);
 check("y ya no aparece en la lista", (await api("/api/files", { cookie: a })).body.files.some((f) => f.id === dos.body.id), false);
 
+console.log("\nUn Range inválido no regala reanudaciones");
+const unica = await subir(Buffer.from("una sola descarga"), { cookie: a, nombre: "una.bin", extra: { "x-max-downloads": "1" } });
+check("el fichero tiene una sola descarga", unica.body?.maxDownloads, 1);
+const rutaUnica = `${BASE}/api/download/${unica.body.id}`;
+check("el rango mal formado se rechaza", (await fetch(rutaUnica, { headers: { Range: "bytes=invalid" } })).status, 416);
+const valida = await fetch(rutaUnica, { headers: { Range: "bytes=0-" } });
+check("el error anterior no bloquea la descarga", valida.status, 206);
+check("se entrega todo el fichero", await valida.text(), "una sola descarga");
+check("y esta sí agota el presupuesto", (await fetch(rutaUnica, { headers: { Range: "bytes=0-" } })).status, 410);
+
 console.log("\nLo que /api/info cuenta, y lo que no");
 const publico = (await api(`/api/info/${id}`)).body;
 check("no dice de quién es el fichero", "owner" in publico, false);
