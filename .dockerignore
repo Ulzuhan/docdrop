@@ -15,3 +15,7 @@ node_modules
 
 deploy
 README.md
+
+# La interfaz construida en el host no decide lo que se embebe: la imagen la
+# construye ella misma en su primera etapa.
+internal/web/dist

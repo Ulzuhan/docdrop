@@ -57,6 +57,14 @@ SUITES=("${@:-${TODAS[@]}}")
 servidor=""
 
 parar() {
+  # Si la tirada va contra la imagen, el proceso que se mata es el cliente de
+  # docker y el contenedor puede sobrevivirle: entonces el puerto sigue ocupado
+  # y la suite siguiente ni arranca. Se retira por etiqueta, que es lo que los
+  # distingue de un contenedor de verdad.
+  if command -v docker >/dev/null 2>&1; then
+    docker ps -aq --filter "label=io.kaicorp.docdrop.prueba=1" 2>/dev/null \
+      | xargs -r docker rm -f >/dev/null 2>&1
+  fi
   [ -n "$servidor" ] || return 0
   # El grupo entero, no el proceso: `next start` levanta un trabajador aparte, y
   # matar sólo al padre deja el puerto ocupado. La siguiente suite encontraría un
@@ -110,20 +118,30 @@ arrancar() {
     curl -sf -o /dev/null "$BASE/" && break
     sleep 0.5
   done
-
-  # La precondición, afirmada: quien escucha tiene que ser este proceso y no un
-  # servidor de una tirada anterior que se quedó vivo. Sin esto se mide un build
-  # viejo y nada lo dice.
-  local escucha
-  escucha=$(ss -tlnp 2>/dev/null | grep ":$PUERTO " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | head -1)
-  if [ -z "$escucha" ]; then
+  if ! curl -sf -o /dev/null "$BASE/"; then
     echo "el servidor no arrancó:"
     tail -20 "$LOG"
     return 1
   fi
+
+  # La precondición, afirmada: quien escucha tiene que ser esta tirada y no un
+  # servidor anterior que se quedó vivo. Sin esto se mide un build viejo y nada
+  # lo dice.
+  #
+  # Contra la imagen no se puede llegar tan lejos: quien escucha es el proxy de
+  # Docker, que es de root, así que ni `ss` enseña su pid ni se puede leer su
+  # entorno. Ahí la precondición se sostiene por el otro lado —el puerto se
+  # comprobó libre justo antes de arrancar— y se dice en voz alta, para que no
+  # parezca que se comprobó algo que no se comprobó.
+  local escucha
+  escucha=$(ss -tlnp 2>/dev/null | grep ":$PUERTO " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | head -1)
+  if [ -z "$escucha" ]; then
+    echo -n "(quien escucha no es de este usuario; puerto verificado libre antes) "
+    return 0
+  fi
   local suyo
   suyo=$(tr '\0' '\n' < "/proc/$escucha/environ" 2>/dev/null | grep '^DOCDROP_DATA_DIR=' | cut -d= -f2-)
-  if [ "$suyo" != "$ALMACEN" ]; then
+  if [ -n "$suyo" ] && [ "$suyo" != "$ALMACEN" ]; then
     echo "en $PUERTO escucha otro servidor, no el de esta tirada"
     return 1
   fi

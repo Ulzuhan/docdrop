@@ -1,72 +1,79 @@
-# syntax=docker/dockerfile:1
-
-# DocDrop container image.
+# La imagen del servicio, con el backend en Go.
 #
-# Multi-stage: dependencies and build are thrown away, the final image only carries
-# the standalone output (~35 MB of app on top of the Node base).
+# La de Node vive en `Dockerfile.node` y ya no se publica. Se conserva mientras
+# dure la observación, porque es con lo que se valida el retorno a 2.3.1.
 #
-# Alpine works here and saves ~60 MB over Debian slim. The usual objection is
-# sharp/libvips needing glibc, but npm installs the musl build automatically and this
-# app never calls next/image anyway. Both variants were tested against the full
-# upload protocol suite before settling on this one.
+# Durante la migración esto fue `Dockerfile.go-candidate`, y nunca
+# `Dockerfile.go`: esa extensión hace que el herramental de Go intente
+# compilarlo y `go build ./...` falla con «illegal character U+0023».
 
-# ── Dependencies ─────────────────────────────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:22-alpine AS assets
 WORKDIR /app
-COPY package.json package-lock.json ./
-# npm ci reproduces the lockfile exactly, which is what makes the build repeatable.
+# Playwright es dependencia de desarrollo y su instalación baja navegadores.
+# Aquí no se usan y no deben aparecer ni en esta capa intermedia.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+COPY package*.json ./
+# `npm ci` completo: vite, Tailwind y PostCSS son dependencias de desarrollo, y
+# sin ellas no hay nada que compilar. Nada de esto llega al runtime.
 RUN npm ci
+# postcss.config.mjs NO es opcional. Sin él, vite copia el CSS SIN PROCESAR y la
+# construcción no falla: la imagen sale con la página rota y todo en verde. Pasó
+# en SecretDrop, y por eso el recorrido de navegador comprueba un estilo
+# calculado contra esta imagen y no sólo que el CSS responda 200.
+COPY vite.config.mts postcss.config.mjs tsconfig.json ./
+COPY web ./web
+COPY public ./public
+# El árbol de React se comparte con la versión de Node: se construye desde
+# `src/`, sin copias paralelas que puedan divergir.
+COPY src ./src
+RUN npx vite build
 
-# ── Build ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
-# Also runs the postbuild step, which copies the static assets and start.js into the
-# standalone output and strips any traced upload data.
-RUN npm run build
+FROM golang:1.27.1-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+COPY cmd ./cmd
+COPY internal ./internal
+# Los assets vienen de la etapa anterior y NUNCA del host: `internal/web/dist`
+# está en .dockerignore para que un `vite build` local no decida qué se embebe.
+COPY --from=assets /app/internal/web/dist ./internal/web/dist
+# CGO fuera: aquí no hay dependencias nativas —el almacén es el árbol de
+# ficheros de siempre, no una base— así que el binario sale estático.
+# -trimpath deja las rutas de compilación fuera, que es lo que permite
+# reconstruirlo igual desde otro directorio.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/docdrop ./cmd/docdrop
 
-# ── Runtime ──────────────────────────────────────────────────────────
-FROM node:22-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3010 \
-    HOSTNAME=0.0.0.0 \
-    DOCDROP_DATA_DIR=/data
-
-# Unprivileged user. The image never runs as root: a container escape through the
-# application should not land on a root shell.
+FROM alpine:3.24 AS runtime
+ENV HOSTNAME=0.0.0.0 PORT=3010 DOCDROP_DATA_DIR=/data
+# Alpine con CA y shell: la shell la usa el `command` del compose para cargar el
+# fichero de entorno, y las CA hacen falta para hablar con el proveedor por
+# HTTPS.
 #
-# apk upgrade: the base image lags behind Alpine's security fixes (libcrypto,
-# measured by the weekly Trivy scan). And npm/npx/yarn are REMOVED: the runtime
-# runs `node server.js` and nothing else — the npm CLI ships its own bundled
-# node_modules (tar, brace-expansion…) that show up in scanners and would never
-# be used. Less surface, smaller image.
+# uid 1001, EL MISMO que la imagen de Node —y distinto del 10001 de las otras
+# cuatro—: los ficheros de /srv/kaicorp/docdrop son suyos, y cambiarlo dejaría
+# el almacén ilegible para el servicio.
 RUN apk -U upgrade --no-cache \
- && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg \
- && addgroup --system --gid 1001 docdrop \
- && adduser --system --uid 1001 --ingroup docdrop docdrop \
- && mkdir -p /data && chown docdrop:docdrop /data
-
-COPY --from=builder --chown=root:root /app/.next/standalone ./
-
-# Uploaded files live outside the image layer, or they would be lost on every
-# container replacement.
+ && apk add --no-cache ca-certificates \
+ && addgroup -S -g 1001 docdrop && adduser -S -u 1001 -G docdrop docdrop \
+ && mkdir /data && chmod 0700 /data && chown docdrop:docdrop /data
+# El binario y nada más. La interfaz va embebida con go:embed, así que aquí no
+# hay node, ni npm, ni node_modules, ni Playwright, ni navegadores.
+COPY --from=build /out/docdrop /usr/local/bin/docdrop
+USER docdrop
+EXPOSE 3010
+# Los ficheros subidos viven fuera de la capa de la imagen, o se perderían en
+# cada reemplazo del contenedor.
 VOLUME ["/data"]
 
-EXPOSE 3010
-USER docdrop
-
-# start.js raises the HTTP server's requestTimeout before handing control to Next.
-# Node's default (5 min) cuts multi-GB uploads off mid-transfer, so starting
-# server.js directly would silently reintroduce that bug.
-CMD ["node", "start.js"]
-
+# La sonda va dentro del binario porque aquí no hay node con el que preguntar.
+# Pega a /healthz, que no pasa por el limitador de peticiones ni recorre el
+# almacén: la versión de Node usaba /api/info/<id>, que sí consume cupo del
+# mismo cubo que el tráfico real cuando no hay proxy delante.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3010)+'/api/info/000000000000').then(r=>process.exit(r.status===404?0:1)).catch(()=>process.exit(1))"
+  CMD ["docdrop", "sonda"]
+
+# Sin start.js: el plazo largo por petición —lo que permite que una subida de
+# gigas sea UNA petición de horas— lo pone el propio binario.
+CMD ["docdrop"]
 
 LABEL org.opencontainers.image.title="DocDrop" \
       org.opencontainers.image.description="Self-hosted file sharing with expiring links: resumable chunked uploads for multi-GB files, previews and streamed ZIP downloads" \
