@@ -190,6 +190,12 @@ trozo, longitud de cabecera, tope 64 KiB) para devolver la cabecera cifrada en
     tamaño— y volvía a crear `parts/` dentro. Un `completar` repetido sobre una
     subida ya cerrada devuelve su ficha en vez de rehacerla; los que llegan
     cuando la sesión ya no está siguen recibiendo 404, como en Node.
+
+    **Lo que esto cuesta**, dicho antes de que se note: cancelar espera al trozo
+    que se esté escribiendo. En la práctica no se ve, porque el cliente aborta
+    su propia petición al cancelar y el servidor deja de leer al instante; sólo
+    se notaría si el cierre viniera de otro sitio distinto del que sube, y
+    entonces la espera está acotada por un trozo (32 MiB por defecto).
 13. **El ZIP toma el tamaño del disco y comprueba que cuadra con la ficha.** Se
     armaba con el tamaño de la ficha y se copiaba acotado a él: un fichero más
     corto —truncado por un fallo de escritura o un disco lleno— terminaba en EOF
