@@ -3,7 +3,6 @@ package httpapi
 import (
 	"html/template"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -33,10 +32,6 @@ type datos struct {
 	Footer        bool
 	FicheroID     string
 	TokenInvitado string
-	Trozo         string
-	MaxFichero    string
-	MaxTotal      string
-	TTLInvitado   string
 }
 
 func (s *Server) documento(w http.ResponseWriter, r *http.Request, d datos) {
@@ -45,10 +40,6 @@ func (s *Server) documento(w http.ResponseWriter, r *http.Request, d datos) {
 	d.CuentaURL = s.cfg.AccountURL
 	d.AltaURL = s.cfg.EnrollURL
 	d.Footer = s.cfg.EnlacesPie
-	d.Trozo = strconv.FormatInt(s.subidas.Trozo(), 10)
-	d.MaxFichero = strconv.FormatInt(s.almacen.MaxFichero(), 10)
-	d.MaxTotal = strconv.FormatInt(s.almacen.MaxTotal(), 10)
-	d.TTLInvitado = strconv.Itoa(ttlFicheroInvitado)
 	if d.Titulo == "" {
 		d.Titulo = tituloPorDefecto
 	}
@@ -66,11 +57,6 @@ func (s *Server) documento(w http.ResponseWriter, r *http.Request, d datos) {
 	w.WriteHeader(http.StatusOK)
 	_ = plantilla.Execute(w, d)
 }
-
-// ttlFicheroInvitado es lo que dura lo que sube un invitado. Fijo y no elegido:
-// un invitado está entregando algo, no gestionando almacenamiento. Tiene que
-// quedar por debajo del techo que aplica el servidor.
-const ttlFicheroInvitado = 24
 
 func (s *Server) origenPublico() string {
 	if s.cfg.PublicHost == "" {
@@ -239,7 +225,7 @@ var plantilla = template.Must(template.New("doc").Parse(
 {{range .CSS}}<link rel="stylesheet" href="{{.}}">
 {{end}}</head>
 <body class="min-h-dvh flex flex-col">
-<div id="app" data-page="{{.Pagina}}"{{if .Email}} data-email="{{.Email}}"{{end}}{{if .FicheroID}} data-file-id="{{.FicheroID}}"{{end}}{{if .TokenInvitado}} data-guest-token="{{.TokenInvitado}}"{{end}}{{if .CuentaURL}} data-account-url="{{.CuentaURL}}"{{end}}{{if .AltaURL}} data-enroll-url="{{.AltaURL}}"{{end}}{{if .Footer}} data-footer-links="on"{{end}} data-chunk-size="{{.Trozo}}" data-max-file-bytes="{{.MaxFichero}}" data-max-total-bytes="{{.MaxTotal}}" data-guest-ttl-hours="{{.TTLInvitado}}"></div>
+<div id="app" data-page="{{.Pagina}}"{{if .Email}} data-email="{{.Email}}"{{end}}{{if .FicheroID}} data-file-id="{{.FicheroID}}"{{end}}{{if .TokenInvitado}} data-guest-token="{{.TokenInvitado}}"{{end}}{{if .CuentaURL}} data-account-url="{{.CuentaURL}}"{{end}}{{if .AltaURL}} data-enroll-url="{{.AltaURL}}"{{end}}{{if .Footer}} data-footer-links="on"{{end}}></div>
 {{if .JS}}<script type="module" nonce="{{.Nonce}}" src="{{.JS}}"></script>{{end}}
 </body></html>
 `))
