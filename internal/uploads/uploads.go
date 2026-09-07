@@ -78,6 +78,13 @@ type Gestor struct {
 
 	mu       sync.Mutex
 	bloqueos map[string]*bloqueo
+
+	// pruebaAntesDelCandado se llama entre el vistazo del barrido y el candado.
+	// Es la ventana donde cabía que otra petición terminara la subida, y no hay
+	// forma de provocarla desde fuera: sin esto, la regresión dependería de
+	// quién gane una carrera, que es no tener regresión. Sólo lo usan las
+	// pruebas de este paquete; en producción vale nil.
+	pruebaAntesDelCandado func(id string)
 }
 
 // Los candados de una subida.
@@ -442,45 +449,79 @@ func (g *Gestor) Abortar(id string) error {
 
 // LimpiarSesiones retira las subidas a medias que nadie va a reanudar.
 //
-// Una entrada que YA TIENE ficha no se borra aquí, sólo se le quitan los restos.
-// Sin esa comprobación, un `Completar` que escribiera la ficha y fallara al
-// retirar session.json dejaba un fichero válido, con su enlace ya repartido,
-// que este barrido borraba entero 24 horas después.
+// LA DECISIÓN SE TOMA DENTRO DEL CANDADO, y esto es lo que hace que sea seguro.
+// Antes se leía la sesión, se miraba que no hubiera ficha y se decidía borrar; el
+// candado se tomaba después, ya con la decisión hecha. En esa ventana cabía un
+// `Completar`: cuando el barrido por fin entraba, la subida ya era un fichero
+// terminado con su enlace repartido, y lo borraba entero. Un fichero que alguien
+// acababa de subir desaparecía por un barrido que decidió cuando aún no existía.
+//
+// Lo de fuera es sólo un vistazo para no tomar el candado por cada entrada del
+// almacén. Puede quedarse corto —una sesión que caduque justo después se queda
+// para el barrido siguiente— pero no puede equivocarse al revés, porque nada de
+// lo que mira ahí decide nada.
 func (g *Gestor) LimpiarSesiones() []string {
-	ahora := g.s.Ahora().UnixMilli()
 	var retiradas []string
-	dir := g.s.Dir()
-	entradas, err := os.ReadDir(dir)
+	entradas, err := os.ReadDir(g.s.Dir())
 	if err != nil {
 		return nil
 	}
+	ahora := g.s.Ahora().UnixMilli()
 	for _, e := range entradas {
 		id := e.Name()
 		if !store.IDValido(id) {
 			continue
 		}
-		ses := g.Leer(id)
-		if ses == nil || ses.SessionExpiresAt >= ahora {
+		// Vistazo sin candado: sólo para saltarse lo que ni de lejos toca.
+		if ses := g.Leer(id); ses == nil || ses.SessionExpiresAt >= ahora {
 			continue
 		}
-		if g.s.LeerMeta(id) != nil {
-			// Subida terminada cuya limpieza no llegó a completarse: se quitan
-			// los restos y se deja el fichero en paz.
-			soltar := g.exclusivo(id)
-			if d, err := g.dirPartes(id); err == nil {
-				_ = os.RemoveAll(d)
-			}
-			if r, err := g.rutaSesion(id); err == nil {
-				_ = os.Remove(r)
-			}
-			soltar()
-			continue
+		if g.pruebaAntesDelCandado != nil {
+			g.pruebaAntesDelCandado(id)
 		}
-		if err := g.Abortar(id); err == nil {
+		if g.retirarSiSigueAbandonada(id) {
 			retiradas = append(retiradas, id)
 		}
 	}
 	return retiradas
+}
+
+// retirarSiSigueAbandonada revalida y actúa, todo con el candado puesto una sola
+// vez. Devuelve si retiró la entrada.
+//
+// Se vuelven a mirar las tres cosas que deciden, porque cualquiera de ellas ha
+// podido cambiar mientras se esperaba el candado:
+//
+//   - LA SESIÓN, que otro `Completar` o `Abortar` puede haber retirado.
+//   - LA CADUCIDAD, porque el vistazo de fuera se hizo con otro instante.
+//   - LA FICHA, que es la señal de que la subida terminó: entonces esto no borra
+//     nada, sólo se lleva los restos que la finalización no llegó a limpiar.
+func (g *Gestor) retirarSiSigueAbandonada(id string) bool {
+	defer g.exclusivo(id)()
+
+	ses := g.Leer(id)
+	if ses == nil || ses.SessionExpiresAt >= g.s.Ahora().UnixMilli() {
+		return false
+	}
+	if g.s.LeerMeta(id) != nil {
+		// Subida terminada cuya limpieza no llegó a completarse: se quitan los
+		// restos y se deja el fichero en paz.
+		g.quitarRestos(id)
+		return false
+	}
+	// Se borra aquí y no con `Abortar`: aquél toma el mismo candado, y volver a
+	// pedirlo teniéndolo puesto sería un bloqueo contra uno mismo.
+	return g.s.BorrarEntrada(id) == nil
+}
+
+// quitarRestos se llama con el candado puesto.
+func (g *Gestor) quitarRestos(id string) {
+	if d, err := g.dirPartes(id); err == nil {
+		_ = os.RemoveAll(d)
+	}
+	if r, err := g.rutaSesion(id); err == nil {
+		_ = os.Remove(r)
+	}
 }
 
 func primero(v, porDefecto string) string {

@@ -46,6 +46,12 @@ runs as uid 1001 and still keeps its data in `/data`.
   Each index now has its own lock and the check is repeated inside it: a resend
   arriving after the chunk is already stored and verified answers
   `alreadyReceived` **without writing**. Different chunks still go in parallel.
+- **The sweep now decides inside the lock, not before it.** It read the session,
+  saw it expired with no record, and decided to delete; the lock came afterwards,
+  with the decision already made. A `complete` fitted in that window: by the time
+  the sweep got in, the upload was a finished file with its link already shared,
+  and it deleted the whole thing. Session, expiry and record are now revalidated
+  inside the exclusive lock, taken once.
 - **Completing and cancelling now take the upload exclusively.** A chunk still
   being written could previously outlive them: it wrote into a file the
   application already considered finished — with its link already shared and its
