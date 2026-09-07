@@ -13,6 +13,9 @@
 # emisor apunta ahí y no a un dominio inventado.
 #
 #   npm run test:backchannel     # hace falta un build antes (npm run build)
+#
+# Como run-suites.sh, acepta `DOCDROP_TEST_LAUNCH` para correr la MISMA suite
+# contra el binario de Go sin tocar ninguna aserción.
 set -uo pipefail
 set -m
 
@@ -49,8 +52,9 @@ DOCDROP_DATA_DIR="$WORK/datos" \
   DOCDROP_OIDC_CLIENT_SECRET=secreto-de-pruebas \
   DOCDROP_OIDC_ISSUER="$EMISOR/" \
   DOCDROP_OIDC_REDIRECT_URI="$BASE/api/auth/callback" \
+  DOCDROP_INSECURE_COOKIES=1 \
   HOSTNAME=127.0.0.1 PORT="$PORT" \
-  node scripts/start.js >"$LOG" 2>&1 &
+  ${DOCDROP_TEST_LAUNCH:-node scripts/start.js} >"$LOG" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 90); do

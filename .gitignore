@@ -37,3 +37,11 @@ next-env.d.ts
 
 # DocDrop uploads (never commit user files!)
 .docdrop-uploads/
+# La interfaz construida por vite. Se genera con `npm run build:web` y la
+# incrusta el binario; el `.gitkeep` sí se guarda, porque sin él `go:embed`
+# no compila en un clon limpio.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+
+# El binario, si se compila en el propio directorio.
+/docdrop

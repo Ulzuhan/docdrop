@@ -12,6 +12,15 @@
 #
 # Necesita un build antes (`npm run build`). Sale con código distinto de cero si
 # algo falla, que es lo que lee CI.
+#
+# LAS MISMAS SUITES VALEN PARA LAS DOS IMPLEMENTACIONES. Con
+# `DOCDROP_TEST_LAUNCH` se arranca ese comando en vez del lanzador de Node, y
+# con `DOCDROP_TEST_BUILD_STAMP` se compara la frescura contra ese fichero en
+# vez de contra `.next/BUILD_ID`. Ninguna aserción cambia: si una suite pasa
+# contra uno y falla contra el otro, la diferencia es real.
+#
+#   DOCDROP_TEST_LAUNCH=./docdrop DOCDROP_TEST_BUILD_STAMP=./docdrop \
+#     ./scripts/run-suites.sh
 set -uo pipefail
 set -m
 
@@ -32,6 +41,14 @@ RAIZ_PRUEBAS="$(mktemp -d)"
 # porque cada lado miraba en un sitio distinto.
 export ALMACEN="$RAIZ_PRUEBAS/almacen"
 export DOCDROP_DATA_DIR="$ALMACEN"
+
+# Qué se arranca, y contra qué se compara su frescura.
+LANZADOR="${DOCDROP_TEST_LAUNCH:-node scripts/start.js}"
+SELLO="${DOCDROP_TEST_BUILD_STAMP:-.next/BUILD_ID}"
+if [ ! -e "$SELLO" ]; then
+  echo "no existe $SELLO: falta construir antes de probar"
+  exit 1
+fi
 
 TODAS=(acceso ficheros upload e2ee)
 SUITES=("${@:-${TODAS[@]}}")
@@ -85,7 +102,8 @@ arrancar() {
     DOCDROP_OIDC_REDIRECT_URI="$BASE/api/auth/callback" \
     DOCDROP_OIDC_ISSUER="http://127.0.0.1:9999/application/o/docdrop/" \
     DOCDROP_OIDC_INTERNAL_BASE="http://127.0.0.1:9999" \
-    PORT="$PUERTO" node scripts/start.js >"$LOG" 2>&1 &
+    DOCDROP_INSECURE_COOKIES=1 \
+    PORT="$PUERTO" $LANZADOR >"$LOG" 2>&1 &
   servidor=$!
 
   for _ in $(seq 1 90); do
@@ -109,7 +127,7 @@ arrancar() {
     echo "en $PUERTO escucha otro servidor, no el de esta tirada"
     return 1
   fi
-  if [ "$(stat -c %Y "/proc/$escucha")" -lt "$(stat -c %Y .next/BUILD_ID)" ]; then
+  if [ "$(stat -c %Y "/proc/$escucha")" -lt "$(stat -c %Y "$SELLO")" ]; then
     echo "el build es más nuevo que el servidor: falta un 'npm run build'"
     return 1
   fi
