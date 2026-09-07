@@ -27,11 +27,12 @@ const PUERTO_IDP = Number(process.env.PUERTO_IDP);
  * Lo que este montaje provoca y no es del producto.
  *
  * 1. El certificado del proxy es autofirmado, y Chromium NO aplica
- *    `ignoreHTTPSErrors` a la descarga del script de un service worker: se
- *    niega a registrarlo y lo dice por consola. Pasa igual contra Node y contra
- *    Go. En vez de mirar para otro lado, se comprueba aparte que `/sw.js` se
- *    sirve y que la página intenta registrarlo, que es lo que sí depende de
- *    nosotros.
+ *    `ignoreHTTPSErrors` a la descarga del script de un service worker. Se
+ *    arregla arrancando el navegador con `--ignore-certificate-errors`, así que
+ *    este ruido ya no debería aparecer; el filtro se queda por si alguna
+ *    versión de Chromium vuelve a quejarse. Silenciarlo no esconde nada: si el
+ *    worker no llegara a registrarse, la comprobación de que TOMA EL CONTROL
+ *    falla, y con ella la descarga en flujo.
  *
  * 2. El proveedor de este montaje habla http mientras la aplicación va por
  *    https, y la CSP lleva `upgrade-insecure-requests`: el navegador convierte
@@ -111,7 +112,13 @@ const proxy = createHttpsServer(
 );
 await new Promise((listo) => proxy.listen(PUERTO_TLS, "127.0.0.1", listo));
 
-const navegador = await chromium.launch();
+// `--ignore-certificate-errors` no es lo mismo que `ignoreHTTPSErrors`, y la
+// diferencia decide qué se puede probar: la opción de Playwright no llega a la
+// descarga del script de un service worker, así que sin esto Chromium se niega
+// a registrarlo contra el certificado autofirmado del montaje — y entonces la
+// descarga en flujo, que es la que hace posible descifrar un fichero de gigas
+// hacia el disco, nunca se ejercita.
+const navegador = await chromium.launch({ args: ["--ignore-certificate-errors"] });
 const contexto = await navegador.newContext({ ignoreHTTPSErrors: true, acceptDownloads: true });
 const pagina = await contexto.newPage();
 
@@ -163,6 +170,15 @@ try {
   await pagina.waitForURL(`${BASE}/`, { timeout: 15000 });
   await pagina.waitForSelector('section[aria-label="Upload files"]', { timeout: 15000 });
   check("el panel aparece tras el login", await pagina.locator('section[aria-label="Upload files"]').isVisible(), true);
+
+  // El service worker: toma el control en la carga siguiente a su registro, y
+  // es lo que decide si la descarga cifrada va en flujo hacia el disco o entera
+  // por memoria. Sin esperar a que controle, el recorrido probaría siempre el
+  // camino de memoria y el de flujo no lo miraría nadie.
+  await pagina.evaluate(() => navigator.serviceWorker.ready);
+  await pagina.reload({ waitUntil: "networkidle" });
+  const controlado = await pagina.evaluate(() => Boolean(navigator.serviceWorker.controller));
+  check("el service worker registrado toma el control", controlado, true);
   // El correo vive dentro del menú de cuenta, que hay que abrir pulsándolo.
   await pagina.locator('button[aria-haspopup="menu"]').first().click();
   const menu = pagina.locator('[role="menu"]').first();
@@ -212,6 +228,12 @@ try {
   check("la página de descarga enseña el nombre real, descifrado en el navegador",
     (await receptor.locator("body").innerText()).includes("secreto.bin"), true);
 
+  // Con el worker al mando, ésta es la ruta de descifrado EN FLUJO: el worker
+  // tira de la página trozo a trozo y el navegador escribe al disco. Es la que
+  // hace posible un fichero de gigas, y la que un port puede romper en silencio
+  // porque el camino de memoria sigue funcionando.
+  const enFlujo = await receptor.evaluate(() => Boolean(navigator.serviceWorker.controller));
+  check("quien recibe también tiene el worker al mando", enFlujo, true);
   const [descarga] = await Promise.all([
     receptor.waitForEvent("download", { timeout: 60000 }),
     receptor.getByRole("button", { name: /download/i }).first().click(),
