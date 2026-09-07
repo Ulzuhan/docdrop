@@ -1,0 +1,176 @@
+# Contratos de DocDrop
+
+Lo que la implementación de Go tiene que cumplir para poder sustituir a la de
+Node **y para que se pueda volver atrás sobre los mismos datos**. Referencia:
+la versión 2.3.1, imagen
+`ghcr.io/ulzuhan/docdrop:2.3.1@sha256:525ef454305d7455c774d4463d11feb029ba8091ef4b83508a7b4002c19f0f67`.
+
+Las suites `acceso`, `ficheros`, `upload`, `e2ee` y `backchannel` se ejecutan
+contra cualquiera de las dos con `DOCDROP_TEST_LAUNCH`, **sin cambiar ninguna
+aserción**. Dan salida idéntica.
+
+## 1. El árbol de datos
+
+```text
+<DATA>/<id>/file            contenido (bulto cifrado si es de punta a punta)
+<DATA>/<id>/meta.json       ficha del fichero
+<DATA>/<id>/session.json    subida troceada en curso
+<DATA>/<id>/parts/<n>       marcador vacío del trozo n
+<DATA>/users/<sha256(sub)>.json
+<DATA>/guests/<token>.json
+<DATA>/revocaciones.json
+```
+
+- `id`: 9 bytes aleatorios en hexadecimal (18 caracteres). Se acepta
+  `^[0-9a-f]{12,64}$`. Token de invitado: 16 bytes (32 caracteres).
+- **Fechas en milisegundos Unix**, no en segundos.
+- Escritura atómica (temporal + `rename`) para `meta.json` y
+  `revocaciones.json`; esta última con permisos `0600`.
+- `users` y `guests` no casan con el formato de id, y por eso los recorridos del
+  almacén los ignoran. No se crean directorios nuevos con nombre hexadecimal.
+
+### `meta.json`
+
+| Campo | Tipo | Presencia |
+|---|---|---|
+| `id`, `originalName`, `mimeType` | string | siempre |
+| `size`, `uploadedAt`, `expiresAt` | número | siempre |
+| `downloadCount`, `maxDownloads` | número | **siempre, aunque valgan 0** |
+| `uploadedBy` | string | sólo si hay etiqueta |
+| `owner` | `user:<id>` | sólo si tiene dueño |
+| `encrypted` | `true` | sólo si es un bulto cifrado; nunca `false` |
+| `burnedAt`, `burnedReason` | número / `expired`\|`exhausted` | sólo en lápidas |
+
+Los contadores no llevan `omitempty` **y no se les puede poner**: Node hace
+`fresh.downloadCount++` sin comprobar nada, así que un campo ausente da `NaN`,
+se escribe como `null`, y a partir de ahí `maxDownloads` deja de tener efecto.
+Hay regresión en los dos sentidos.
+
+### `session.json`
+
+`id`, `originalName`, `size`, `mimeType`, `ttlHours`, `maxDownloads`,
+`chunkSize`, `totalParts`, `createdAt`, `sessionExpiresAt` siempre;
+`uploadedBy`, `owner` (`user:<id>` o `guest:<token>`) y `encrypted` opcionales.
+El blob se preasigna al tamaño final y cada trozo se escribe en su
+desplazamiento.
+
+## 2. Rutas y códigos
+
+| Ruta | Método | Acceso | Respuestas |
+|---|---|---|---|
+| `/api/upload` | POST | sesión o invitado | 200, 400 (sin cuerpo / sin `x-filename` / mal codificado / fichero vacío), 403 (origen), 401, 413, 429, 507 |
+| `/api/upload/init` | POST | sesión o invitado | 200, 400 (JSON inválido, sin `filename`, `size` no entero positivo), 401, 413, 429, 507 |
+| `/api/upload/{id}` | GET | dueño de la subida | 200, 404 (ajeno o inexistente), 410 (caducada), 401 |
+| `/api/upload/{id}` | DELETE | dueño de la subida | 200, 404, 401 |
+| `/api/upload/{id}/part/{n}` | PUT | dueño de la subida | 200 (también `alreadyReceived`), 400 (índice, cuerpo vacío, trozo corto), 404, 410, 413, 422 (hash), 429 |
+| `/api/upload/{id}/complete` | POST | dueño de la subida | 200, 403 (origen), 404, 409 (`missing`), 410 |
+| `/api/download/{id}` | GET | público | 200, 206, 404, 410, 416, 429 |
+| `/api/info/{id}` | GET | público | 200, 404, 410 (`reason`), 429 |
+| `/api/zip` | GET | público | 200, 400, 410, 429 |
+| `/api/files` | GET | sesión | 200, 401 |
+| `/api/files/{id}` | DELETE | dueño | 200, 404, 401 |
+| `/api/cleanup` | POST | sesión | 200, 401, 403 |
+| `/api/guest-links` | GET/POST | sesión | 200 / 201, 400, 401, 429 |
+| `/api/guest-links/{token}` | DELETE | emisor | 200, 404, 401 |
+| `/api/guest/{token}` | GET | público | 200, 404, 429 |
+| `/api/auth/login` | GET | público | 302, 503 |
+| `/api/auth/callback` | GET | público | 302 (relativo) |
+| `/api/auth/logout` | POST | pública, con cookie | 200 (`next`), 403 |
+| `/api/auth/backchannel-logout` | POST | proveedor | 200, 400, 404, 413, 503 |
+| `/`, `/d/{id}`, `/guest/{token}` | GET | páginas | 200 |
+| `/share` | POST/GET | público | 303 `/?shared=error` / 307 `/` |
+| `/robots.txt`, `/sitemap.xml`, `/manifest.webmanifest` | GET | público | 200 |
+
+Un fichero, una subida o un enlace **ajeno** responde lo mismo que uno
+inexistente: estos endpoints no deben servir para averiguar qué hay.
+
+### Cabeceras
+
+- Todas las respuestas: `X-Frame-Options: DENY`, `X-Content-Type-Options`,
+  `Referrer-Policy: no-referrer`, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy`, `Strict-Transport-Security` y la CSP con nonce
+  por respuesta.
+- Descargas: `Accept-Ranges`, `Cache-Control: no-store`,
+  `Content-Disposition` (RFC 5987/6266), `Content-Range` en 206 y 416.
+- `robots.txt` y `sitemap.xml` son **byte a byte** los de Node.
+
+### Límites de peticiones
+
+`download` 240/min · `info` 120/min · `zip` 30/min · `upload` 30/h ·
+`upload-init` 30/h · `upload-part` 5000/h · `guest-links` 30/h ·
+`guest-check` 30/15 min. Ventana deslizante; la clave es `acción:ip` y la IP es
+el **último** elemento de `X-Forwarded-For`, o `direct` sin proxy.
+
+### Validación, igual que en JavaScript
+
+`Number(null)` es 0 y `Number(undefined)` es NaN, así que **subir sin cabecera
+`x-ttl-hours` da 1 hora y llamar a `init` sin `ttlHours` da 24**. No es un
+descuido del port: es lo que hace 2.3.1, y las suites lo comprueban. Igual con
+`0x10` → 16, `1e2` → 100, `"abc"` → el valor por defecto.
+
+## 3. Contabilidad
+
+- Una descarga cuenta **al entregar el último byte**, no al pedirla.
+- Una petición en vuelo ocupa plaza contra el límite (TTL 2 h).
+- Las continuaciones por rango son gratis sólo para un cliente que ya pagó una
+  descarga completa (clave `id\0cliente`, TTL 1 h), apuntadas **después** de
+  contabilizar.
+- La vista previa (`?inline=1`, tipos seguros, SVG excluido) ni cuenta ni
+  registra continuación.
+- La cuota se reserva bajo candado, se transfiere fuera y se suelta siempre.
+- Plazas, continuaciones y reservas viven en memoria y se pierden al reiniciar.
+
+## 4. Identidad
+
+- `docdrop_session` = `base64url(JSON{uid,iat,exp})` `.` `base64url(HMAC-SHA256)`.
+  Con el mismo secreto vale en las dos implementaciones, en los dos sentidos.
+- El id de la cookie se busca en disco: una cuenta borrada deja de funcionar en
+  el acto.
+- Cookie temporal de login `docdrop_oidc`, escapada como componente de URL.
+- Revocación por `revocaciones.json`, podada a 25 h. Si no se puede escribir,
+  **503**.
+
+## 5. Cifrado de punta a punta
+
+`src/lib/e2ee.ts` es el único sitio donde hay cifrado, y vive en el navegador.
+El servidor sólo lee el prefijo EN CLARO del bulto (magia `DDE1`, tamaño de
+trozo, longitud de cabecera, tope 64 KiB) para devolver la cabecera cifrada en
+`/api/info`. **No descifra nada y no ve ninguna clave.**
+
+## 6. Diferencias intencionadas frente a 2.3.1
+
+1. **`exp` obligatorio** en el `logout_token`. Antes se validaba sólo si venía y
+   era numérico, así que un aviso sin `exp` se aceptaba.
+2. **Un aviso con `sid` y sin `sub`** responde 400 diciendo que no se soporta,
+   en vez de 200 sin haber revocado nada.
+3. **`iat` no puede tener más de 5 minutos.** Es una restricción nueva, la misma
+   que ya adoptó QR-Forge: acota el reenvío más allá de la caché de `jti`.
+4. **El barrido de sesiones no borra una entrada que ya tiene ficha.** Antes,
+   una limpieza fallida al completar dejaba la sesión puesta y el barrido
+   retiraba el fichero entero 24 h después.
+5. **`/api/zip` rechaza bultos cifrados** con 400 y un motivo. El panel ya los
+   excluía de la selección; lo que quedaba abierto era la URL a mano, que
+   empaquetaba ciphertext inservible y gastaba una descarga de cada uno.
+6. **Healthcheck propio** (`/healthz`, `docdrop sonda`) en vez de
+   `/api/info/<id>`, que pasa por el limitador y comparte cupo con el tráfico
+   real.
+7. **Cookies `Secure` por defecto**, con excepción explícita
+   (`DOCDROP_INSECURE_COOKIES=1`). Node lo ataba a `NODE_ENV`, que en un binario
+   no existe.
+8. **El ZIP puede llevar `Content-Length`** cuando el archivo es pequeño y el
+   servidor ya lo tiene entero en el búfer. Con archivos grandes —el caso real—
+   sale en flujo y sin longitud, como en Node.
+9. **`/healthz`** es una ruta nueva. No expone nada: responde `ok`.
+
+## 7. Lo que se prueba, y dónde
+
+| Comprobación | Dónde |
+|---|---|
+| Contratos HTTP, permisos, validación, cuotas | `scripts/run-suites.sh` (156 comprobaciones), contra las dos |
+| Cierre de sesión por aviso firmado | `scripts/test-backchannel.sh`, contra las dos |
+| Rangos, continuaciones, plazas, ZIP | `go test ./internal/httpapi` |
+| Almacén, cuota, lápidas, concurrencia | `go test ./internal/store` |
+| Subidas troceadas y barrido | `go test ./internal/uploads` |
+| Parada con transferencias en vuelo | `go test ./cmd/docdrop` |
+| Recorrido de navegador, integridad del fichero descifrado | `scripts/test-navegador.sh` (34 comprobaciones), contra las dos y contra la imagen |
+| Node 2.3.1 → Go → el mismo Node | `scripts/test-compatibilidad.sh` (55 comprobaciones) |

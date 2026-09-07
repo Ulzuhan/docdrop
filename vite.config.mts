@@ -46,10 +46,9 @@ export default defineConfig({
   // documento de producción lo sirve Go y el desarrollo sigue siendo
   // `npm run dev` con Next mientras Node siga siendo la referencia.
   //
-  // La transformación de JSX la hace esbuild. Hay que decírselo a mano porque
-  // el tsconfig del repositorio pone `jsx: "preserve"` para Next, y con eso
-  // esbuild dejaría el JSX sin transformar.
-  esbuild: { jsx: "automatic" },
+  // El JSX no necesita nada: vite lo transforma él solo en los `.tsx`.
+  // Comprobado quitando la configuración que se había puesto por si acaso — el
+  // bundle sale con el mismo hash, así que no hacía nada.
   plugins: [
     // `emptyOutDir` vacía el directorio, y ahí dentro vive el único fichero que
     // el repositorio guarda: sin él `go:embed all:dist` no compila en un clon

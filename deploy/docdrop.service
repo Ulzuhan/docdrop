@@ -19,18 +19,23 @@ WorkingDirectory=/opt/docdrop
 # The dash makes it optional: without credentials the service starts fail-closed and
 # lets nobody sign in. There is no open mode.
 EnvironmentFile=-/etc/docdrop.env
-Environment=NODE_ENV=production
 Environment=PORT=3010
 # Listens on loopback only: the sole way in is a reverse proxy or a tunnel.
 Environment=HOSTNAME=127.0.0.1
 Environment=DOCDROP_DATA_DIR=/var/lib/docdrop
 
-# start.js raises the HTTP server's requestTimeout before handing control to Next:
-# Node's default (5 min) cuts large uploads off mid-transfer. Tune it with
-# DOCDROP_REQUEST_TIMEOUT_MS.
-ExecStart=/usr/local/bin/node start.js
+# Un solo binario: la interfaz va embebida y no hay Node que arrancar. El plazo
+# largo por petición —lo que permite que una subida de gigas sea UNA petición de
+# horas— lo pone el propio binario; se ajusta con DOCDROP_REQUEST_TIMEOUT_MS.
+ExecStart=/usr/local/bin/docdrop
 Restart=on-failure
 RestartSec=5s
+
+# El presupuesto de parada, alineado con el del binario (8 s por defecto,
+# DOCDROP_SHUTDOWN_MS). Al parar se cierra la admisión y las transferencias en
+# curso se CORTAN de forma controlada: son reanudables, y esperar a una subida
+# de varios gigas no cabe en ninguna ventana de parada razonable.
+TimeoutStopSec=10
 
 # ── Filesystem isolation ─────────────────────────────────────────────
 # Everything read-only except the data directory. It cannot even rewrite its own
@@ -67,8 +72,11 @@ RestrictRealtime=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @obsolete @mount @swap @reboot
-# Note: MemoryDenyWriteExecute is deliberately not enabled — V8's JIT needs
-# executable pages and the process would not start.
+# MemoryDenyWriteExecute: con Node estaba descartado porque el JIT de V8 necesita
+# páginas ejecutables. Con el binario de Go ya no hay JIT y en principio podría
+# activarse. Se deja apagado a propósito: no se ha probado en esta máquina, y una
+# protección sin probar que impide arrancar es peor que no tenerla.
+# MemoryDenyWriteExecute=yes
 
 # ── Network ──────────────────────────────────────────────────────────
 # IPv4/IPv6/Unix only; no raw sockets, no netlink.

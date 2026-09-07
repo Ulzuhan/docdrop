@@ -1,5 +1,53 @@
 # Changelog
 
+## 3.0.0 — 2026-09-07
+
+The server is now a single Go binary with the interface embedded. **The
+production image no longer contains Node**; Node stays to build the interface
+and run the test suites.
+
+Nothing about the service changes for whoever uses it: same routes, same status
+codes, same headers, same on-disk format and the same links. Encryption stays in
+the browser — `src/lib/e2ee.ts` was not ported, duplicated or touched — and the
+server still cannot open what it stores.
+
+The major bump is for **whoever runs it**: the entrypoint changes. A compose file
+carrying `exec node start.js` must be changed to `exec docdrop`. The image still
+runs as uid 1001 and still keeps its data in `/data`.
+
+- **Same data, both ways.** The format is exactly 2.3.1's: same paths, timestamps
+  in milliseconds and optional fields absent when they do not apply. Counters are
+  always written even when zero — with them missing, the Node rollback would do
+  `undefined++`, write `null`, and the download limit would stop existing.
+  `scripts/test-compatibilidad.sh` proves the round trip against the exact
+  rollback digest, by turns and with no simultaneous writers.
+- **Shutdown designed for hours-long transfers.** Admission closes, in-flight
+  transfers are cut in a controlled way rather than waited for, and each one
+  leaves the store as if it had never happened: the download does not count and
+  releases its slot, a half-written chunk is not marked received, and the space
+  reservation is freed. The budget (8 s, `DOCDROP_SHUTDOWN_MS`) fits inside the
+  10 s the container grants.
+- **`exp` is now required** in a back-channel `logout_token`, and a notice
+  carrying only `sid` is answered with 400 instead of a 200 that revoked nothing.
+  An `iat` older than 5 minutes is rejected.
+- **The session sweep can no longer delete a finished file.** If completing an
+  upload wrote `meta.json` but failed to remove `session.json`, the old sweep
+  removed the whole entry 24 hours later — a valid file, with its link already
+  shared, gone with no explanation.
+- **`/api/zip` refuses encrypted bundles** with a reason. The dashboard already
+  excluded them from the selection; what was left open was the URL by hand, which
+  packed unusable ciphertext and spent one download of each.
+- **Own healthcheck** (`/healthz`, `docdrop sonda`) instead of `/api/info/<id>`,
+  which goes through the rate limiter and shares its bucket with real traffic.
+- Cookies are `Secure` by default, with an explicit exception
+  (`DOCDROP_INSECURE_COOKIES=1`) for local HTTP. It used to depend on `NODE_ENV`,
+  which does not exist in a binary.
+- The image is about 26 MB instead of ~150 MB.
+
+Node is kept as the rollback reference: `Dockerfile.node` builds the 2.3.1 image
+and every suite still runs against it. It will be retired once the deployment has
+been observed and accepted, not before.
+
 ## 2.3.1 — 2026-09-04
 
 - Validate byte ranges and blob availability before reserving a download.

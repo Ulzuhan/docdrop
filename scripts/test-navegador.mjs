@@ -53,7 +53,8 @@ let pasan = 0, fallan = 0;
 const check = (nombre, real, esperado) => {
   const ok = JSON.stringify(real) === JSON.stringify(esperado);
   console.log(`  ${ok ? "✓" : "✗"} ${nombre}${ok ? "" : `  (esperaba ${JSON.stringify(esperado)}, dio ${JSON.stringify(real)})`}`);
-  ok ? pasan++ : fallan++;
+  if (ok) pasan++;
+  else fallan++;
 };
 const nota = (nombre, valor) => console.log(`  · ${nombre}: ${valor}`);
 

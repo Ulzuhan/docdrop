@@ -3,6 +3,15 @@ name: CI
 # Lint, types and all protocol suites on every push and PR. The container
 # workflow only proves the image builds; this one proves the code works.
 #
+# Desde la migración hay DOS implementaciones y las dos se prueban:
+#
+#   checks    Node, que sigue siendo la referencia de la vuelta atrás
+#   go        el binario: unitarias con -race, vet, y las MISMAS suites
+#   imagen    la imagen final, con las suites y el recorrido de navegador
+#
+# Las suites no se duplican: son las mismas apuntadas con DOCDROP_TEST_LAUNCH.
+# Si una pasa contra uno y falla contra el otro, la diferencia es real.
+#
 # Two orderings that are not obvious:
 #
 # - `tsc --noEmit` must run AFTER `next build`, because Next generates the types
@@ -54,3 +63,104 @@ jobs:
 
       - name: Run all HTTP protocol suites against isolated stores
         run: ./scripts/run-suites.sh
+
+  go:
+    runs-on: ubuntu-latest
+    env:
+      DOCDROP_SESSION_SECRET: ci-only-docdrop-secret-at-least-32-bytes
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - run: go vet ./cmd/... ./internal/...
+
+      # -race porque lo que aquí se rompe son carreras: dos descargas sobre el
+      # último permiso, dos subidas sobre el último hueco de cuota, y una parada
+      # mientras hay transferencias en vuelo.
+      - run: go test -race ./cmd/... ./internal/...
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # La interfaz se construye aquí y se embebe en el binario.
+      - run: npm run build:web
+
+      - run: go build -o docdrop ./cmd/docdrop
+
+      # Las mismas suites que pasa Node, sin tocar ninguna aserción.
+      - name: Suites HTTP contra el binario
+        env:
+          DOCDROP_TEST_LAUNCH: ./docdrop
+          DOCDROP_TEST_BUILD_STAMP: ./docdrop
+        run: ./scripts/run-suites.sh
+
+      - name: Aviso de cierre de sesión contra el binario
+        env:
+          DOCDROP_TEST_LAUNCH: ./docdrop
+        run: bash scripts/test-backchannel.sh
+
+      # El recorrido de navegador contra el binario, con navegador de verdad.
+      # Playwright es dependencia de desarrollo con versión fijada y NO entra en
+      # la imagen; los navegadores se instalan sólo aquí.
+      - run: npx playwright install --with-deps chromium
+
+      - name: Recorrido de navegador contra el binario
+        env:
+          DOCDROP_TEST_LAUNCH: ./docdrop
+        run: npm run test:navegador
+
+  imagen:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # La imagen se construye entera aquí dentro: los assets salen de su propia
+      # etapa y NUNCA del host, que es lo que impide que un `vite build` local
+      # decida lo que se publica.
+      - name: Construir la imagen
+        run: docker build -t docdrop-go:ci .
+
+      # Bajo las restricciones de producción: raíz de sólo lectura, tmpfs, sin
+      # capacidades, 256 procesos, 1 GiB y 1,5 CPU. Una imagen que sólo arranca
+      # sin ellas no está probada.
+      - name: Suites HTTP contra la imagen
+        env:
+          DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
+          DOCDROP_TEST_BUILD_STAMP: Dockerfile
+        run: ./scripts/run-suites.sh
+
+      - run: npx playwright install --with-deps chromium
+
+      # Y el recorrido completo contra la imagen que se despliega, que es donde
+      # se ve si el CSS salió sin procesar o si el pie perdió sus enlaces.
+      - name: Recorrido de navegador contra la imagen
+        env:
+          DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
+          DOCDROP_RED_HOST: '1'
+        run: npm run test:navegador
+
+      - name: La imagen no lleva Node ni npm
+        run: |
+          docker run --rm --entrypoint sh docdrop-go:ci -c '
+            if command -v node || command -v npm || command -v npx; then
+              echo "la imagen de producción lleva Node"; exit 1
+            fi
+            id | grep -q "uid=1001" || { echo "el uid no es 1001"; exit 1; }
+          '

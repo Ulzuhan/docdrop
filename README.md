@@ -12,7 +12,8 @@ runs out of downloads.
 The problem it was built for: passing a 7 GB GoPro video between phones and laptops
 **without a messaging app recompressing it**.
 
-- Next.js 16 (App Router) · React 19 · Tailwind v4 · shadcn/ui
+- **Go** on the server · React 19 · Tailwind v4 · shadcn/ui, built with vite
+- One binary: the interface is embedded, and the production image has no Node
 - No database: files and their metadata live on disk
 - Installable PWA, with support for the mobile "Share" menu
 - Multi-file and whole-folder uploads, chunked and resumable
@@ -51,9 +52,9 @@ docker compose up -d
 ```
 
 Uploads live in the `/data` volume, so replacing the container never loses them.
-The image runs as an unprivileged user, ships a healthcheck, and is built for
-`linux/amd64`. (arm64 is deliberately not built: under QEMU a Next.js build takes
-hours; the day it is wanted, the way is a native-arm runner matrix, not emulation.)
+The image runs as an unprivileged user (uid 1001), ships a healthcheck, weighs
+about 26 MB and is built for `linux/amd64`. (arm64 is deliberately not built: the
+day it is wanted, the way is a native-arm runner matrix, not emulation.)
 
 `:latest` is the most recent release. Pin `:1.0.1` if you would rather decide when
 to move, or `:1.0` / `:1` to take patches automatically. `:main` is whatever is on
@@ -73,19 +74,18 @@ to put in the container environment.
 
 ```bash
 npm install
-npm run build     # builds and prepares the standalone output
-npm run start     # runs on http://127.0.0.1:3010
+npm run build:web            # builds the interface into internal/web/dist
+go build -o docdrop ./cmd/docdrop
+./docdrop                    # runs on http://127.0.0.1:3010
 ```
 
-> **Always start it with `npm run start`, never with `next start`.**
->
-> `npm run start` runs `scripts/start.js`, which raises the HTTP server's
-> `requestTimeout` before handing control to Next (see
-> [Wall 2](#wall-2--nodes-5-minute-request-timeout)). Running `npx next start`
-> brings the cut-off back: large uploads die mid-transfer. It is also incompatible
-> with `output: standalone`.
+Node is needed to **build** the interface and to run the test suites. It is not
+needed to run the service, and it is not in the production image.
 
-The port comes from `PORT`. For development, `npm run dev` works as usual.
+The port comes from `PORT`. For development, `npm run dev` still starts the Next
+version of the interface with hot reload; the Node runtime is kept for now as the
+rollback reference (`Dockerfile.node`) and will be retired once the deployment has
+been accepted.
 
 ### Reaching it from outside
 
@@ -105,7 +105,8 @@ the phone's share sheet.
 
 ### Keeping it running
 
-`npm run start` dies when the terminal closes. A user service is usually enough:
+Started from a terminal, it dies when the terminal closes. A user service is
+usually enough:
 
 ```ini
 # ~/.config/systemd/user/docdrop.service
@@ -113,7 +114,7 @@ the phone's share sheet.
 Description=DocDrop
 [Service]
 WorkingDirectory=%h/path/to/docdrop
-ExecStart=/usr/local/bin/node scripts/start.js
+ExecStart=%h/path/to/docdrop/docdrop
 Environment=PORT=3010
 Restart=on-failure
 [Install]
@@ -266,7 +267,10 @@ the way in, `readFile()` on the way out). With a 10 GB limit advertised, the pro
 dies long before getting there: Node's `Buffer` cap is around 2 GB.
 
 Everything is streamed in both directions instead. Verified with a 3 GB file: it goes
-up and comes back byte-for-byte identical with server memory flat at ~160 MB.
+up and comes back byte-for-byte identical with server memory flat at ~160 MB. The Go
+server keeps the same shape — a shared 256 KiB buffer per transfer, positional writes
+for chunks and a streamed ZIP — because the container has 1 GiB and the per-file
+limit is 10 GB.
 
 ### Wall 2 — Node's 5-minute request timeout
 
@@ -282,12 +286,14 @@ before:  http=408  time=306.06s  uploaded=160,563,200 of 200,000,000  (76%)
 after:   http=200  time=380.79s  uploaded=200,000,000                 (100%)
 ```
 
-Next only exposes `keepAliveTimeout`, not `requestTimeout`, and its documentation
-rules out combining `output: standalone` with a custom server. So `scripts/start.js`
-intercepts the creation of the HTTP server, raises the per-request limit to 12h and
-then starts Next. `headersTimeout` stays at 60s — that is the one protecting against
-clients dribbling headers out — and the body cannot grow unbounded because
-`/api/upload` cuts it off at the maximum size.
+Next only exposed `keepAliveTimeout`, not `requestTimeout`, and its documentation
+rules out combining `output: standalone` with a custom server, so `scripts/start.js`
+had to intercept the creation of the HTTP server to raise the per-request limit to
+12h. The Go server sets it directly (`DOCDROP_REQUEST_TIMEOUT_MS`, 12h by default),
+and deliberately sets **no global write timeout**: one would cut long downloads in
+half. The header timeout stays at 60s — that is the one protecting against clients
+dribbling headers out — and the body cannot grow unbounded because `/api/upload`
+cuts it off at the size it reserved.
 
 ### Wall 3 — the proxy's per-request cap
 
@@ -408,15 +414,30 @@ browser will not allow installing or sharing.
 ## Tests
 
 ```bash
-npm run build
-npm test                        # unit tests + all four API suites
-./scripts/run-suites.sh acceso  # just one
+npm run build:web && go build -o docdrop ./cmd/docdrop
+go test -race ./cmd/... ./internal/...            # server unit tests
+npx vitest run                                    # the crypto module
+
+DOCDROP_TEST_LAUNCH=./docdrop DOCDROP_TEST_BUILD_STAMP=./docdrop \
+  ./scripts/run-suites.sh                         # the HTTP suites
+DOCDROP_TEST_LAUNCH=./docdrop npm run test:navegador
+scripts/test-compatibilidad.sh                    # published Node -> Go -> Node
 ```
 
-160 checks: 22 unit tests (vitest) over the crypto module, and 138 in four API
-suites with no dependencies and no test framework. Each suite gets a
-server the script starts itself, with **its own data directory** — never the real
-one. That directory is exported rather than merely handed to the server, and the
+**The same suites run against both implementations.** Without
+`DOCDROP_TEST_LAUNCH` they run against the Node artefact, which is still the
+rollback reference; with it, against the binary or against the image
+(`scripts/lanzar-imagen.sh`). Not one assertion changes: if a suite passes on one
+and fails on the other, the difference is real. Today they produce identical
+output.
+
+On top of the API suites: 34 browser checks with Playwright — including the
+byte-for-byte integrity of the decrypted file — 55 compatibility checks taken in
+turns against the exact rollback digest, and the Go unit tests over ranges,
+download slots, quota, chunked uploads and shutdown.
+
+Each suite gets a server the script starts itself, with **its own data
+directory** — never the real one. That directory is exported rather than merely handed to the server, and the
 difference is not cosmetic: while it was not, the suites seeded their user records
 into the production store while the server looked in the temporary one. Two test
 accounts ended up mixed in with real ones, and the suites failed because each side
@@ -545,7 +566,8 @@ that provides no WAF and no filtering of its own.
 
 ## Maintenance
 
-The server **sweeps the store every hour** on its own (see `instrumentation-node.ts`):
+The server **sweeps the store every hour** on its own (`barrer` in
+`cmd/docdrop/main.go`; `instrumentation-node.ts` in the Node version):
 expired files, exhausted ones and abandoned uploads. Without it an expired file was
 only deleted when someone tried to open it, so it kept eating into the quota forever.
 
