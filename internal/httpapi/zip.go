@@ -98,10 +98,33 @@ func (s *Server) zip(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ruta, _ := s.almacen.RutaBlob(id)
+		// EL TAMAÑO SALE DEL DISCO, NO DE LA FICHA, y se comprueba que
+		// coinciden. Se armaba el archivo con el tamaño de la ficha y se copiaba
+		// con un lector acotado a él: si el fichero era más corto —truncado por
+		// un fallo de escritura, por un disco lleno— la copia terminaba en EOF
+		// sin error, el archivo se cerraba como bueno y cada fichero contaba
+		// como descargado. Quien lo abría se llevaba un fichero corto sin que
+		// nada se lo dijera, y con su descarga gastada.
+		//
+		// Un fichero que no cuadra con su ficha se queda fuera y suelta su plaza
+		// sin contar, igual que uno que ya no está disponible: recibir 9 de 10
+		// sigue siendo mejor que recibir un error, pero recibir 10 con uno
+		// mutilado no.
+		info, err := os.Stat(ruta)
+		if err != nil || info.Size() != reclamo.Meta.Size {
+			if err == nil {
+				avisar("[docdrop] %s queda fuera del archivo: la ficha dice %d bytes y el fichero tiene %d",
+					id, reclamo.Meta.Size, info.Size())
+			}
+			if err := reclamo.Hecho(false); err != nil {
+				avisar("[docdrop] no se pudo soltar la plaza de %s: %v", id, err)
+			}
+			continue
+		}
 		entradas = append(entradas, entrada{
 			nombre:  reclamo.Meta.OriginalName,
 			ruta:    ruta,
-			tamano:  reclamo.Meta.Size,
+			tamano:  info.Size(),
 			fecha:   time.UnixMilli(reclamo.Meta.UploadedAt),
 			reclamo: reclamo,
 		})
@@ -152,9 +175,19 @@ func (s *Server) zip(w http.ResponseWriter, r *http.Request) {
 			entero = false
 			break
 		}
-		_, cerr := copiar(r.Context(), destino, io.LimitReader(f, e.tamano), e.tamano)
+		enviados, cerr := copiar(r.Context(), destino, io.LimitReader(f, e.tamano), e.tamano)
 		f.Close()
 		if cerr != nil {
+			entero = false
+			break
+		}
+		// Y si se quedó corto entre el stat y la lectura, el archivo NO se
+		// cierra: sin su directorio central, quien lo reciba ve un archivo roto,
+		// que es la verdad. Cerrarlo entregaría un fichero mutilado con pinta de
+		// entero, y encima cobrando la descarga.
+		if enviados != e.tamano {
+			avisar("[docdrop] %q se quedó en %d de %d bytes; el archivo sale incompleto a propósito",
+				nombres[i], enviados, e.tamano)
 			entero = false
 			break
 		}

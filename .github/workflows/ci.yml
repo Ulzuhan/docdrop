@@ -5,9 +5,11 @@ name: CI
 #
 # Desde la migración hay DOS implementaciones y las dos se prueban:
 #
-#   checks    Node, que sigue siendo la referencia de la vuelta atrás
-#   go        el binario: unitarias con -race, vet, y las MISMAS suites
-#   imagen    la imagen final, con las suites y el recorrido de navegador
+#   checks          Node, que sigue siendo la referencia de la vuelta atrás
+#   go              el binario: unitarias con -race, vet, y las MISMAS suites
+#   imagen          la imagen final, con las suites y el recorrido de navegador
+#   compatibilidad  el camino de la vuelta atrás, contra el DIGEST EXACTO de la
+#                   imagen de Node que corre en producción
 #
 # Las suites no se duplican: son las mismas apuntadas con DOCDROP_TEST_LAUNCH.
 # Si una pasa contra uno y falla contra el otro, la diferencia es real.
@@ -164,3 +166,44 @@ jobs:
             fi
             id | grep -q "uid=1001" || { echo "el uid no es 1001"; exit 1; }
           '
+
+  compatibilidad:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build:web
+
+      - run: go build -o docdrop ./cmd/docdrop
+
+      # El digest está fijado dentro del script. Se comprueba aquí que sigue
+      # existiendo antes de correr nada: si algún día se retirara del registro,
+      # el fallo tiene que decir eso y no perderse dentro de la suite.
+      - name: Traer la imagen de vuelta atrás
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull ghcr.io/ulzuhan/docdrop@sha256:525ef454305d7455c774d4463d11feb029ba8091ef4b83508a7b4002c19f0f67
+
+      # Node publicado → Go → el MISMO Node, por turnos y sobre un solo almacén.
+      # Es el camino de la vuelta atrás, y si esto falla el despliegue no se
+      # puede deshacer sin perder datos.
+      - name: Compatibilidad contra el digest exacto de vuelta atrás
+        env:
+          DOCDROP_TEST_LAUNCH: ./docdrop
+        run: ./scripts/test-compatibilidad.sh

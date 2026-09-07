@@ -37,6 +37,27 @@ runs as uid 1001 and still keeps its data in `/data`.
 - **`/api/zip` refuses encrypted bundles** with a reason. The dashboard already
   excluded them from the selection; what was left open was the URL by hand, which
   packed unusable ciphertext and spent one download of each.
+- **Two writes of the same chunk no longer interleave.** Each chunk is written
+  at its position inside the final file, so two requests for the same index
+  write to the same place. They used to interleave, and the bad part was not the
+  ordering: a request *rejected* by checksum had already left its bytes there.
+  The good one answered 200, marked the chunk received, and the file somebody
+  downloaded carried the rejected bytes inside — with nothing failing anywhere.
+  Each index now has its own lock and the check is repeated inside it: a resend
+  arriving after the chunk is already stored and verified answers
+  `alreadyReceived` **without writing**. Different chunks still go in parallel.
+- **Completing and cancelling now take the upload exclusively.** A chunk still
+  being written could previously outlive them: it wrote into a file the
+  application already considered finished — with its link already shared and its
+  record claiming another size — and recreated `parts/` inside it.
+- **The ZIP takes each size from disk and checks it against the record.** It used
+  to trust the record and copy through a reader capped at that size: a shorter
+  file — truncated by a write failure or a full disk — ended at EOF with no
+  error, the archive closed as good, and **every file counted as downloaded**.
+  Whoever opened it got a short file with nothing to say so. A file that does not
+  match now stays out and releases its slot without counting, and one that runs
+  short mid-send leaves the archive unclosed, so the recipient sees a broken
+  archive rather than a mutilated file that looks whole.
 - **A request carrying both a session and a guest token now counts as both.**
   Signing in and then opening a guest link in the same browser — the operator
   testing their own link, or anyone with an account who receives one — opened the

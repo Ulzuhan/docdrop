@@ -364,12 +364,27 @@ func (s *Server) subirTrozo(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, "Invalid part index")
 		return
 	}
-	if s.subidas.ParteRecibida(sesion.ID, indice) {
-		escribirJSON(w, http.StatusOK, map[string]any{"ok": true, "index": indice, "alreadyReceived": true})
-		return
-	}
 	if r.ContentLength == 0 && r.Header.Get("Transfer-Encoding") == "" {
 		errorJSON(w, http.StatusBadRequest, "Empty body")
+		return
+	}
+
+	// A partir de aquí se escribe en el fichero, así que el trozo va con su
+	// candado: dos peticiones del mismo índice escriben en el mismo sitio, y
+	// completar o cancelar no pueden colarse en medio. Ver `bloqueo` en el
+	// paquete uploads para los dos casos que esto cierra.
+	defer s.subidas.Parte(sesion.ID, indice)()
+
+	// Y se vuelve a mirar DENTRO del candado. Ésta es la comprobación que
+	// convierte el reenvío en idempotente de verdad: si mientras se esperaba
+	// otra petición dejó el trozo puesto y verificado, éste no lo reescribe —da
+	// igual que traiga bytes distintos o un checksum que no cuadre—.
+	if sesion = s.subidas.Leer(sesion.ID); sesion == nil {
+		errorJSON(w, http.StatusNotFound, "Upload session not found")
+		return
+	}
+	if s.subidas.ParteRecibida(sesion.ID, indice) {
+		escribirJSON(w, http.StatusOK, map[string]any{"ok": true, "index": indice, "alreadyReceived": true})
 		return
 	}
 
