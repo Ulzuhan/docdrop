@@ -431,7 +431,7 @@ rollback reference; with it, against the binary or against the image
 and fails on the other, the difference is real. Today they produce identical
 output.
 
-On top of the API suites: 36 browser checks with Playwright — including the
+On top of the API suites: 39 browser checks with Playwright — including the
 byte-for-byte integrity of a file decrypted through the streaming path, the one
 that makes multi-gigabyte encrypted downloads possible — 55 compatibility checks taken in
 turns against the exact rollback digest, and the Go unit tests over ranges,

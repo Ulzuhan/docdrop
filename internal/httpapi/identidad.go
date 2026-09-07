@@ -68,22 +68,36 @@ func (s *Server) exigirAccesoSubida(w http.ResponseWriter, r *http.Request) bool
 	return false
 }
 
-// credencialDe dice CON QUÉ viene esta petición: `user:<id>`, `guest:<token>`
-// o "".
+// credencialesDe devuelve TODAS las credenciales que trae la petición:
+// `user:<id>`, `guest:<token>`, las dos, o ninguna.
 //
 // Existe porque tener acceso y ser el dueño de una subida concreta son dos
 // cosas distintas, y hasta hace poco se trataban como una. Comprobado antes de
 // arreglarlo, con dos enlaces de invitado distintos: el segundo escribía el
 // trozo 0 del fichero que estaba subiendo el primero, le leía el nombre del
 // documento y le cancelaba la subida.
-func (s *Server) credencialDe(r *http.Request) string {
+//
+// SON TODAS Y NO LA PRIMERA, y ahí está la corrección. La versión de 2.3.1
+// devolvía la de la sesión si la había y sólo miraba el invitado si no: con eso,
+// alguien CON SESIÓN que abriera un enlace de invitado en el mismo navegador
+// —el operador probando su propio enlace, sin ir más lejos— abría la subida
+// como `guest:<token>` (ahí gana el invitado) y luego cada trozo se
+// identificaba como `user:<id>` (aquí ganaba la sesión). No coincidían nunca, y
+// la subida troceada moría con «Upload session not found». Reproducido en el
+// navegador contra la imagen publicada 2.3.1 antes de tocar nada.
+//
+// Quien lleva las dos credenciales tiene las dos: puede seguir su propia subida
+// venga por donde venga. Lo que sigue sin poder hacer, que es lo que esta
+// comprobación protege, es tocar la subida de otro.
+func (s *Server) credencialesDe(r *http.Request) []string {
+	var credenciales []string
 	if u := s.usuarioActual(r); u != nil {
-		return "user:" + u.ID
+		credenciales = append(credenciales, "user:"+u.ID)
 	}
 	if g := s.invitadoDe(r); g != nil {
-		return "guest:" + g.Token
+		credenciales = append(credenciales, "guest:"+g.Token)
 	}
-	return ""
+	return credenciales
 }
 
 // esDueno dice si quien llama puede tocar ESTA subida.
@@ -91,11 +105,16 @@ func (s *Server) credencialDe(r *http.Request) string {
 // Una sesión sin dueño es de antes de que esto existiera: se deja pasar para no
 // romper las subidas en vuelo al desplegar. Duran 24 horas, así que pasado ese
 // plazo no queda ninguna.
-func esDueno(dueno, credencial string) bool {
+func esDueno(dueno string, credenciales []string) bool {
 	if dueno == "" {
 		return true
 	}
-	return credencial != "" && dueno == credencial
+	for _, c := range credenciales {
+		if c == dueno {
+			return true
+		}
+	}
+	return false
 }
 
 // ─── Rutas de identidad ─────────────────────────────────────────────

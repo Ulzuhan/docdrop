@@ -263,16 +263,49 @@ try {
   invitado.on("pageerror", (e) => erroresInvitado.push(String(e)));
   await invitado.goto(`${BASE}/guest/${creado}`, { waitUntil: "networkidle" });
   const textoInvitado = await invitado.locator("body").innerText();
-  check("la página del invitado se abre", textoInvitado.includes("Recorrido") || textoInvitado.length > 0, true);
+  check("la página del invitado se abre", textoInvitado.includes("Recorrido"), true);
   check("y no enumera nada de la instancia", textoInvitado.includes("secreto.bin"), false);
+
+  // Y sube de verdad por ahí, que es para lo que existe el enlace. La cabecera
+  // con el token la pone el cliente; si el port la hubiera perdido, esto daría
+  // 401 y la cola se quedaría en error.
+  await invitado.locator('section[aria-label="Upload files"] input[type=file]').first()
+    .setInputFiles({ name: "de-fuera.bin", mimeType: "application/octet-stream", buffer: randomBytes(4096) });
+  try {
+    await invitado.locator("li").filter({ hasText: "de-fuera.bin" }).first().waitFor({ timeout: 30000 });
+    await invitado.locator("text=✅").first().waitFor({ timeout: 30000 });
+  } catch (error) {
+    console.log("  ! la cola del invitado no llegó a terminar; lo que se ve:");
+    console.log((await invitado.locator("body").innerText()).split("\n").map((l) => `      ${l}`).join("\n"));
+    console.log("  ! errores:", erroresInvitado);
+    throw error;
+  }
+  check("el invitado sube y la cola lo da por hecho",
+    (await invitado.locator("body").innerText()).includes("de-fuera.bin"), true);
   check("la consola del invitado está limpia", erroresInvitado, []);
   await invitado.close();
 
+  // Y lo subido por el enlace aparece en el panel de quien lo repartió, que es
+  // lo que hace que el invitado no sea un agujero anónimo.
+  await pagina.reload({ waitUntil: "networkidle" });
+  check("lo que subió el invitado sale en el panel del emisor",
+    (await pagina.locator("body").innerText()).includes("de-fuera.bin"), true);
+
   // ── Borrar y salir ────────────────────────────────────────────────
   console.log("\nBorrar y salir");
-  await pagina.locator('button[aria-label^="Delete"]').first().click();
-  await pagina.waitForFunction(() => document.querySelectorAll("li.dd-file-row").length === 0, { timeout: 15000 });
-  check("el fichero desaparece del panel",
+  // Hay dos: el que subió la cuenta y el que entró por el enlace de invitado,
+  // que es de quien lo repartió. Se borran los dos, uno a uno.
+  const antes = await pagina.locator("li.dd-file-row").count();
+  check("el panel tiene lo propio y lo que entró por el enlace", antes, 2);
+  for (let quedan = antes; quedan > 0; quedan--) {
+    await pagina.locator('button[aria-label^="Delete"]').first().click();
+    await pagina.waitForFunction(
+      (n) => document.querySelectorAll("li.dd-file-row").length === n,
+      quedan - 1,
+      { timeout: 15000 }
+    );
+  }
+  check("y los ficheros desaparecen al borrarlos",
     await pagina.locator("li.dd-file-row").count(), 0);
 
   // El botón de salir de verdad, no una llamada a la API: es lo que se pulsa.
