@@ -128,15 +128,32 @@ jobs:
       # release cuya firma no verifique se queda en rojo, y un rojo no se ancla
       # en producción.
       #
-      # `--signer-workflow` es lo que convierte «está firmado» en «lo firmó ESTE
-      # workflow de ESTE repositorio». Sin él valdría cualquier attestation
-      # legítima de cualquier sitio, que no es lo que se quiere saber.
+      # Qué impone cada bandera, que no es lo mismo y conviene no confundirlo
+      # (comprobado en el código del CLI, pkg/cmd/attestation/verify/policy.go):
+      #
+      #   --repo            acota la búsqueda de attestations Y exige que la
+      #                     extensión SourceRepositoryURI del certificado sea
+      #                     este repositorio. Ya por sí solo descarta una
+      #                     attestation de otro sitio.
+      #   --signer-workflow ESTRECHA la identidad del firmante de «cualquier
+      #                     workflow de este repositorio» a ESTE fichero. Es lo
+      #                     que importa el día que haya más de un workflow con
+      #                     permiso de firmar.
+      #   --source-digest   exige que el commit del que se construyó sea éste.
+      #   --source-ref      exige que la referencia sea ésta: sin ella, una
+      #                     attestation legítima de otra rama o de otra etiqueta
+      #                     del mismo repositorio pasaría.
+      #
+      # Las dos últimas son las que atan el artefacto a lo que se cree estar
+      # publicando, y no sólo a quién lo publicó.
       - name: Verificar la firma de lo recién publicado
         run: |
           gh attestation verify \
             "oci://${REGISTRY}/${IMAGEN}@${DIGEST}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/docker.yml"
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/docker.yml" \
+            --source-digest "${GITHUB_SHA}" \
+            --source-ref "${GITHUB_REF}"
         env:
           GH_TOKEN: ${{ github.token }}
           REGISTRY: ${{ env.REGISTRY }}
