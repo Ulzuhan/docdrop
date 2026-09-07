@@ -222,6 +222,11 @@ func (s *Store) BorrarEntrada(id string) error {
 
 // Quemar borra el contenido y deja la ficha como lápida: libera el espacio, que
 // es lo que importa, y conserva el motivo para quien abra el enlace después.
+//
+// SE LLAMA SIEMPRE CON EL CANDADO DEL ID PUESTO —lo hacen los tres sitios desde
+// los que se usa: el barrido, el reclamo de una descarga y su liquidación—.
+// Queda escrito porque leer, borrar y reescribir la ficha sin el candado es la
+// forma de que dos quemados a la vez dejen una lápida sin motivo.
 func (s *Store) Quemar(id, motivo string) error {
 	m := s.LeerMeta(id)
 	if m == nil {
