@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"os"
 	"testing"
 )
 
@@ -151,5 +152,100 @@ func TestZipValidaLaPeticion(t *testing.T) {
 		if res.StatusCode != c.estado {
 			t.Errorf("%s dio %d, esperaba %d", c.ruta, res.StatusCode, c.estado)
 		}
+	}
+}
+
+// UN FICHERO MÁS CORTO QUE SU FICHA NO PUEDE SALIR EN UN ARCHIVO COMPLETO.
+//
+// El ZIP se armaba con el tamaño de la ficha y copiaba con un lector acotado a
+// ese tamaño: si el fichero en disco era más corto —truncado por un fallo de
+// escritura, por un disco lleno, por una subida que no terminó de cuadrar— la
+// copia terminaba en EOF sin error, el archivo se cerraba como bueno, y **cada
+// fichero contaba como descargado**. Quien lo abría se llevaba un fichero corto
+// sin que nada se lo dijera, y con su descarga gastada.
+func TestZipRechazaUnFicheroMasCortoQueSuFicha(t *testing.T) {
+	b := nuevoBanco(t)
+	entero := b.fichero(t, 8192, 1)
+	corto := b.fichero(t, 8192, 1)
+
+	// El de disco se queda a la mitad; la ficha sigue diciendo 8192.
+	ruta, _ := b.almacen.RutaBlob(corto)
+	if err := os.Truncate(ruta, 4096); err != nil {
+		t.Fatal(err)
+	}
+	b.almacen.InvalidarUsado()
+
+	res := b.pedir(t, "GET", "/api/zip?ids="+entero+","+corto, "1.2.3.4", nil)
+	cuerpo, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	b.asentar(t)
+
+	// El truncado no puede ir dentro, y sobre todo no puede gastar su descarga.
+	if c := b.contador(t, corto); c != 0 {
+		t.Errorf("el fichero truncado gastó una descarga: %d", c)
+	}
+	if res.StatusCode == http.StatusOK {
+		archivo, err := zip.NewReader(bytes.NewReader(cuerpo), int64(len(cuerpo)))
+		if err != nil {
+			t.Fatalf("el archivo no abre: %v", err)
+		}
+		for _, f := range archivo.File {
+			r, err := f.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			datos, err := io.ReadAll(r)
+			r.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if int64(len(datos)) != int64(f.UncompressedSize64) {
+				t.Errorf("%q dice %d bytes y trae %d", f.Name, f.UncompressedSize64, len(datos))
+			}
+			if len(datos) == 4096 {
+				t.Errorf("el fichero truncado ha salido en el archivo")
+			}
+		}
+	}
+	// Y el que estaba bien sí puede haber salido; si salió, cuenta.
+	if res.StatusCode == http.StatusOK {
+		if c := b.contador(t, entero); c != 1 {
+			t.Errorf("el fichero íntegro debería contar una descarga: %d", c)
+		}
+	}
+}
+
+// Y si se trunca DESPUÉS de empezar a mandarlo, el archivo no puede cerrarse
+// como si estuviera completo: quien lo reciba tiene que ver un archivo roto, no
+// un fichero corto con pinta de entero.
+func TestZipNoCierraUnArchivoQueSeQuedoCorto(t *testing.T) {
+	b := nuevoBanco(t)
+	id := b.fichero(t, 1<<20, 0)
+
+	// Se le quita la mitad justo antes de pedirlo, pero la ficha ya está en
+	// memoria del reclamo con el tamaño viejo.
+	ruta, _ := b.almacen.RutaBlob(id)
+	m := b.almacen.LeerMeta(id)
+	m.Size = 1 << 20
+	if err := b.almacen.EscribirMeta(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(ruta, 1<<19); err != nil {
+		t.Fatal(err)
+	}
+	b.almacen.InvalidarUsado()
+
+	res := b.pedir(t, "GET", "/api/zip?ids="+id, "5.6.7.8", nil)
+	cuerpo, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	b.asentar(t)
+
+	if res.StatusCode == http.StatusOK && len(cuerpo) > 0 {
+		if _, err := zip.NewReader(bytes.NewReader(cuerpo), int64(len(cuerpo))); err == nil {
+			t.Error("el archivo se cerró como bueno con un fichero a medias dentro")
+		}
+	}
+	if c := b.contador(t, id); c != 0 {
+		t.Errorf("un archivo que no salió entero no puede contar descargas: %d", c)
 	}
 }

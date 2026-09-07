@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Ulzuhan/docdrop/internal/store"
@@ -74,6 +75,105 @@ type Gestor struct {
 	// dueñoDeInvitado resuelve `guest:<token>` al usuario que emitió el enlace.
 	// Se inyecta para no crear una dependencia circular con el paquete auth.
 	duenoDeInvitado func(token string) string
+
+	mu       sync.Mutex
+	bloqueos map[string]*bloqueo
+}
+
+// Los candados de una subida.
+//
+// POR QUÉ HACEN FALTA, con dos casos que llegaron reproducidos:
+//
+// DOS ESCRITURAS DEL MISMO TROZO. Cada trozo se escribe en su posición dentro
+// del fichero final, así que dos peticiones del mismo índice escriben EN EL
+// MISMO SITIO. Sin candado se entrelazan, y lo peor no es el desorden: una
+// petición que se RECHAZA por checksum ya ha dejado sus bytes puestos. La buena
+// contestaba 200, marcaba el trozo, y el fichero que alguien se descargaba
+// llevaba dentro los bytes de la que se rechazó. Nadie veía un error en ningún
+// momento. Medido: 32.768 bytes de basura en un trozo de 64 KiB.
+//
+// UN TROZO EN VUELO SOBREVIVIENDO A COMPLETAR O CANCELAR. `Completar` lee los
+// marcadores, mira el tamaño del fichero y escribe la ficha; `Abortar` borra la
+// entrada entera. Un trozo que siguiera escribiendo después metía bytes en un
+// fichero ya terminado —con su ficha diciendo otro tamaño y su enlace ya
+// repartido— y volvía a crear `parts/` dentro, que es justo la entrada con
+// ficha y restos que el barrido no sabe interpretar.
+//
+// De ahí el reparto: cada trozo va con su candado propio, y completar o
+// cancelar toman el EXCLUSIVO. Los trozos distintos siguen entrando en paralelo,
+// que es lo que hace rápida una subida de gigas.
+type bloqueo struct {
+	usos   int
+	rw     sync.RWMutex
+	pmu    sync.Mutex
+	partes map[int]*sync.Mutex
+}
+
+func (g *Gestor) tomar(id string) *bloqueo {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	b := g.bloqueos[id]
+	if b == nil {
+		b = &bloqueo{partes: map[int]*sync.Mutex{}}
+		g.bloqueos[id] = b
+	}
+	b.usos++
+	return b
+}
+
+func (g *Gestor) soltar(id string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	b := g.bloqueos[id]
+	if b == nil {
+		return
+	}
+	b.usos--
+	if b.usos == 0 {
+		delete(g.bloqueos, id)
+	}
+}
+
+// Parte bloquea la escritura de un trozo concreto. Devuelve la función que lo
+// suelta, que va siempre en un `defer`.
+//
+// Toma el candado compartido de la subida —para que completar y cancelar no
+// puedan colarse en medio— y el propio del índice —para que dos peticiones del
+// mismo trozo no se entrelacen—.
+func (g *Gestor) Parte(id string, indice int) func() {
+	b := g.tomar(id)
+	b.rw.RLock()
+
+	b.pmu.Lock()
+	m := b.partes[indice]
+	if m == nil {
+		m = &sync.Mutex{}
+		b.partes[indice] = m
+	}
+	b.pmu.Unlock()
+	m.Lock()
+
+	var una sync.Once
+	return func() {
+		una.Do(func() {
+			m.Unlock()
+			b.rw.RUnlock()
+			g.soltar(id)
+		})
+	}
+}
+
+// exclusivo bloquea la subida entera: no queda ningún trozo escribiendo.
+func (g *Gestor) exclusivo(id string) func() {
+	b := g.tomar(id)
+	b.rw.Lock()
+	var una sync.Once
+	return func() {
+		una.Do(func() {
+			b.rw.Unlock()
+			g.soltar(id)
+		})
+	}
 }
 
 func Nuevo(s *store.Store, trozo int64, duenoDeInvitado func(string) string) *Gestor {
@@ -84,7 +184,7 @@ func Nuevo(s *store.Store, trozo int64, duenoDeInvitado func(string) string) *Ge
 	if duenoDeInvitado == nil {
 		duenoDeInvitado = func(string) string { return "" }
 	}
-	return &Gestor{s: s, trozo: trozo, duenoDeInvitado: duenoDeInvitado}
+	return &Gestor{s: s, trozo: trozo, duenoDeInvitado: duenoDeInvitado, bloqueos: map[string]*bloqueo{}}
 }
 
 func (g *Gestor) Trozo() int64 { return g.trozo }
@@ -257,6 +357,17 @@ var ErrFaltanPartes = errors.New("faltan trozos")
 //
 // Devuelve la lista de trozos que faltan cuando no se puede cerrar.
 func (g *Gestor) Completar(ses *Sesion) (*store.Meta, []int, error) {
+	// Exclusivo: no puede quedar ningún trozo escribiendo mientras se mira el
+	// tamaño del fichero y se escribe la ficha.
+	defer g.exclusivo(ses.ID)()
+
+	// Ya terminada por otra petición idéntica: se devuelve su ficha en vez de
+	// rehacerla. Sin esto, dos «complete» a la vez escribían dos fichas con
+	// fechas de caducidad distintas para el mismo fichero.
+	if m := g.s.LeerMeta(ses.ID); m != nil {
+		return m, nil, nil
+	}
+
 	recibidas := map[int]bool{}
 	for _, i := range g.PartesRecibidas(ses.ID) {
 		recibidas[i] = true
@@ -318,10 +429,14 @@ func (g *Gestor) Completar(ses *Sesion) (*store.Meta, []int, error) {
 }
 
 // Abortar cancela la subida y borra lo que hubiera llegado.
+//
+// Exclusivo, por lo mismo que Completar: un trozo a medio escribir cuando se
+// borra la entrada volvería a crear el directorio con un fichero suelto dentro.
 func (g *Gestor) Abortar(id string) error {
 	if !store.IDValido(id) {
 		return nil
 	}
+	defer g.exclusivo(id)()
 	return g.s.BorrarEntrada(id)
 }
 
@@ -351,12 +466,14 @@ func (g *Gestor) LimpiarSesiones() []string {
 		if g.s.LeerMeta(id) != nil {
 			// Subida terminada cuya limpieza no llegó a completarse: se quitan
 			// los restos y se deja el fichero en paz.
+			soltar := g.exclusivo(id)
 			if d, err := g.dirPartes(id); err == nil {
 				_ = os.RemoveAll(d)
 			}
 			if r, err := g.rutaSesion(id); err == nil {
 				_ = os.Remove(r)
 			}
+			soltar()
 			continue
 		}
 		if err := g.Abortar(id); err == nil {

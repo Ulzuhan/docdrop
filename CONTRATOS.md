@@ -173,6 +173,33 @@ trozo, longitud de cabecera, tope 64 KiB) para devolver la cabecera cifrada en
     petición. Lo que la comprobación protege sigue protegido: con dos enlaces de
     invitado distintos, el segundo sigue sin poder tocar la subida del primero.
 
+11. **Dos escrituras del mismo trozo se serializan.** Cada trozo se escribe en
+    su posición dentro del fichero final, así que dos peticiones del mismo
+    índice escriben en el mismo sitio. En 2.3.1 se entrelazaban, y lo peor no
+    era el desorden: una petición RECHAZADA por checksum ya había dejado sus
+    bytes puestos, la buena contestaba 200 y marcaba el trozo, y el fichero que
+    alguien descargaba llevaba dentro los bytes de la rechazada, sin que nada
+    fallara en ningún momento. Ahora cada índice va con su candado y se vuelve a
+    mirar dentro de él: un reenvío que llega cuando el trozo ya está puesto y
+    verificado contesta `alreadyReceived` **sin escribir**, traiga los bytes que
+    traiga. Los trozos distintos siguen entrando en paralelo.
+12. **Completar y cancelar toman la subida en exclusiva.** No pueden ejecutarse
+    mientras se está escribiendo un trozo. Antes, un trozo en vuelo podía seguir
+    escribiendo después de que `completar` hubiera leído el tamaño y escrito la
+    ficha —fichero terminado con su enlace repartido y su ficha diciendo otro
+    tamaño— y volvía a crear `parts/` dentro. Un `completar` repetido sobre una
+    subida ya cerrada devuelve su ficha en vez de rehacerla; los que llegan
+    cuando la sesión ya no está siguen recibiendo 404, como en Node.
+13. **El ZIP toma el tamaño del disco y comprueba que cuadra con la ficha.** Se
+    armaba con el tamaño de la ficha y se copiaba acotado a él: un fichero más
+    corto —truncado por un fallo de escritura o un disco lleno— terminaba en EOF
+    sin error, el archivo se cerraba como bueno y **cada fichero contaba como
+    descargado**. Quien lo abría se llevaba un fichero corto sin que nada se lo
+    dijera. Ahora un fichero que no cuadra se queda fuera y suelta su plaza sin
+    contar, y si se queda corto a mitad de envío el archivo **no se cierra**:
+    sin su directorio central, quien lo recibe ve un archivo roto, que es la
+    verdad.
+
 Lo que **no** es una diferencia, aunque lo pareciera: el HTML de las páginas sale
 con el mismo `Cache-Control: private, no-cache, no-store, max-age=0,
 must-revalidate` que emite Node, y un id inválido en `/d/<id>` llega al cliente
@@ -186,6 +213,8 @@ contestaba antes a quien copió mal un enlace.
 | Contratos HTTP, permisos, validación, cuotas | `scripts/run-suites.sh` (156 comprobaciones), contra las dos |
 | Cierre de sesión por aviso firmado | `scripts/test-backchannel.sh`, contra las dos |
 | Rangos, continuaciones, plazas, ZIP | `go test ./internal/httpapi` |
+| Carreras entre peticiones: dos escrituras del mismo trozo, reenvío rechazado, completar y cancelar con un trozo en vuelo, cierres simultáneos | `go test -race ./internal/httpapi` (`carreras_test.go`) |
+| ZIP con un fichero más corto que su ficha, y truncado a mitad de envío | `go test ./internal/httpapi` (`zip_test.go`) |
 | Almacén, cuota, lápidas, concurrencia | `go test ./internal/store` |
 | Subidas troceadas y barrido | `go test ./internal/uploads` |
 | Parada con transferencias en vuelo | `go test ./cmd/docdrop` |
