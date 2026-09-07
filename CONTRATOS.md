@@ -196,6 +196,17 @@ trozo, longitud de cabecera, tope 64 KiB) para devolver la cabecera cifrada en
     su propia petición al cancelar y el servidor deja de leer al instante; sólo
     se notaría si el cierre viniera de otro sitio distinto del que sube, y
     entonces la espera está acotada por un trozo (32 MiB por defecto).
+
+    **El barrido decide dentro del candado, no antes.** Miraba la sesión, veía
+    que estaba caducada y que no había ficha, y decidía borrar; el candado lo
+    tomaba después, con la decisión ya hecha. En esa ventana cabía un
+    `Completar`: cuando el barrido entraba, la subida ya era un fichero
+    terminado con su enlace repartido, y lo borraba entero. Ahora se revalidan
+    dentro del exclusivo las tres cosas que deciden —sesión, caducidad y ficha—
+    y se toma el candado una sola vez. Lo que se mira fuera es sólo un vistazo
+    para no bloquear por cada entrada del almacén: puede quedarse corto —una
+    sesión que caduque justo después espera al barrido siguiente— pero no puede
+    equivocarse al revés.
 13. **El ZIP toma el tamaño del disco y comprueba que cuadra con la ficha.** Se
     armaba con el tamaño de la ficha y se copiaba acotado a él: un fichero más
     corto —truncado por un fallo de escritura o un disco lleno— terminaba en EOF
@@ -220,6 +231,7 @@ contestaba antes a quien copió mal un enlace.
 | Cierre de sesión por aviso firmado | `scripts/test-backchannel.sh`, contra las dos |
 | Rangos, continuaciones, plazas, ZIP | `go test ./internal/httpapi` |
 | Carreras entre peticiones: dos escrituras del mismo trozo, reenvío rechazado, completar y cancelar con un trozo en vuelo, cierres simultáneos | `go test -race ./internal/httpapi` (`carreras_test.go`) |
+| Barrido: sesión realmente abandonada, fichero terminado con restos, y completar o cancelar mientras el barrido espera el candado | `go test -race ./internal/uploads` |
 | ZIP con un fichero más corto que su ficha, y truncado a mitad de envío | `go test ./internal/httpapi` (`zip_test.go`) |
 | Almacén, cuota, lápidas, concurrencia | `go test ./internal/store` |
 | Subidas troceadas y barrido | `go test ./internal/uploads` |

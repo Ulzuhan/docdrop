@@ -163,3 +163,85 @@ func TestBarridoRetiraLoAbandonado(t *testing.T) {
 		t.Fatalf("no liberó el sitio: %d", s.Usado())
 	}
 }
+
+// EL BARRIDO NO PUEDE BORRAR UNA SUBIDA QUE TERMINA MIENTRAS ÉL ESPERA.
+//
+// El barrido miraba la sesión, veía que estaba caducada y que no había ficha, y
+// decidía borrar. El candado lo tomaba después, con la decisión ya hecha. En esa
+// ventana cabía un `Completar`: cuando el barrido por fin entraba, la subida ya
+// era un fichero terminado con su enlace repartido, y lo borraba entero.
+//
+// La ventana se abre a mano porque desde fuera no se puede provocar: dependería
+// de quién gane la carrera, y una regresión que depende de eso no es una
+// regresión.
+func TestBarridoNoBorraUnaSubidaQueTerminaMientrasEspera(t *testing.T) {
+	s, g, reloj := banco(t)
+	ses, err := g.Crear(Entrada{Nombre: "justo-a-tiempo.bin", Tamano: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	escribirTrozo(t, s, g, ses, 0, 'z')
+
+	// La sesión caduca: para el vistazo del barrido, esto está abandonado.
+	*reloj = reloj.Add(VidaSesion + time.Hour)
+
+	// Y justo entre ese vistazo y el candado, la subida termina.
+	var cerrada *store.Meta
+	g.pruebaAntesDelCandado = func(string) {
+		g.pruebaAntesDelCandado = nil
+		var err error
+		cerrada, _, err = g.Completar(ses)
+		if err != nil {
+			t.Errorf("completar: %v", err)
+		}
+	}
+
+	retiradas := g.LimpiarSesiones()
+
+	if len(retiradas) != 0 {
+		t.Fatalf("el barrido borró una subida que acababa de terminar: %v", retiradas)
+	}
+	if cerrada == nil {
+		t.Fatal("la subida no llegó a terminar")
+	}
+	if s.LeerMeta(ses.ID) == nil {
+		t.Fatal("el fichero terminado ha desaparecido")
+	}
+	ruta, _ := s.RutaBlob(ses.ID)
+	if _, err := os.Stat(ruta); err != nil {
+		t.Fatalf("el contenido del fichero terminado ha desaparecido: %v", err)
+	}
+	// Y sin restos: la finalización se los llevó, y el barrido no ha tenido que
+	// arreglar nada.
+	dir, _ := s.DirEntrada(ses.ID)
+	for _, resto := range []string{"parts", "session.json"} {
+		if _, err := os.Stat(filepath.Join(dir, resto)); !os.IsNotExist(err) {
+			t.Errorf("la entrada terminada conserva %q", resto)
+		}
+	}
+}
+
+// Y si lo que cambia mientras espera es que alguien la cancela, el barrido
+// tampoco puede contarla como retirada suya ni tropezar con lo que ya no está.
+func TestBarridoConvivConUnaCancelacionEnMedio(t *testing.T) {
+	s, g, reloj := banco(t)
+	ses, err := g.Crear(Entrada{Nombre: "cancelada.bin", Tamano: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	*reloj = reloj.Add(VidaSesion + time.Hour)
+
+	g.pruebaAntesDelCandado = func(string) {
+		g.pruebaAntesDelCandado = nil
+		if err := g.Abortar(ses.ID); err != nil {
+			t.Errorf("abortar: %v", err)
+		}
+	}
+	if retiradas := g.LimpiarSesiones(); len(retiradas) != 0 {
+		t.Fatalf("el barrido se apuntó una retirada que hizo otro: %v", retiradas)
+	}
+	dir, _ := s.DirEntrada(ses.ID)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("la entrada cancelada sigue ahí")
+	}
+}
