@@ -285,7 +285,7 @@ func (s *Server) sesionDeSubida(w http.ResponseWriter, r *http.Request, comproba
 		errorJSON(w, http.StatusNotFound, "Upload session not found")
 		return nil
 	}
-	if !esDueno(sesion.Owner, s.credencialDe(r)) {
+	if !esDueno(sesion.Owner, s.credencialesDe(r)) {
 		errorJSON(w, http.StatusNotFound, "Upload session not found")
 		return nil
 	}

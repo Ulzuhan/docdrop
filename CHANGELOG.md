@@ -37,6 +37,15 @@ runs as uid 1001 and still keeps its data in `/data`.
 - **`/api/zip` refuses encrypted bundles** with a reason. The dashboard already
   excluded them from the selection; what was left open was the URL by hand, which
   packed unusable ciphertext and spent one download of each.
+- **A request carrying both a session and a guest token now counts as both.**
+  Signing in and then opening a guest link in the same browser — the operator
+  testing their own link, or anyone with an account who receives one — opened the
+  chunked upload as `guest:<token>` and then identified every chunk as
+  `user:<id>`. They never matched, and the upload died with 404 "Upload session
+  not found". Found by driving the guest page in a browser, and reproduced
+  against the published 2.3.1 image before changing anything. What the check
+  protects still holds: with two different guest links, the second one still
+  cannot touch the first one's upload.
 - **Own healthcheck** (`/healthz`, `docdrop sonda`) instead of `/api/info/<id>`,
   which goes through the rate limiter and shares its bucket with real traffic.
 - Cookies are `Secure` by default, with an explicit exception

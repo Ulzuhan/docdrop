@@ -18,9 +18,12 @@ import (
 // comprobar incluye códigos, cabeceras y cuerpos.
 type banco struct {
 	*Server
-	almacen *store.Store
-	http    *httptest.Server
-	reloj   time.Time
+	almacen   *store.Store
+	cuentas   *auth.Cuentas
+	invitados *auth.Invitados
+	sesiones  *auth.Sesiones
+	http      *httptest.Server
+	reloj     time.Time
 }
 
 func nuevoBanco(t *testing.T) *banco {
@@ -35,14 +38,16 @@ func nuevoBanco(t *testing.T) *banco {
 	}
 	invitados := auth.NuevosInvitados(dir, ahora)
 	rev := auth.NuevasRevocaciones(dir, ahora)
-	b.almacen = almacen
+	cuentas := auth.NuevasCuentas(dir, ahora)
+	sesiones := auth.NuevasSesiones("secreto-de-pruebas-con-treinta-y-dos-bytes", 12, false, rev, ahora)
+	b.almacen, b.cuentas, b.invitados, b.sesiones = almacen, cuentas, invitados, sesiones
 	b.Server = Nuevo(Piezas{
 		Cfg:       Config{},
 		Almacen:   almacen,
 		Subidas:   uploads.Nuevo(almacen, 1024, invitados.DuenoDe),
-		Cuentas:   auth.NuevasCuentas(dir, ahora),
+		Cuentas:   cuentas,
 		Invitados: invitados,
-		Sesiones:  auth.NuevasSesiones("secreto-de-pruebas-con-treinta-y-dos-bytes", 12, false, rev, ahora),
+		Sesiones:  sesiones,
 		Rev:       rev,
 		Ahora:     ahora,
 	})

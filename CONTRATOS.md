@@ -161,6 +161,17 @@ trozo, longitud de cabecera, tope 64 KiB) para devolver la cabecera cifrada en
    servidor ya lo tiene entero en el búfer. Con archivos grandes —el caso real—
    sale en flujo y sin longitud, como en Node.
 9. **`/healthz`** es una ruta nueva. No expone nada: responde `ok`.
+10. **Una petición con sesión Y token de invitado vale por las dos.** En 2.3.1,
+    `credencialDe` devolvía la de la sesión si la había y sólo miraba el
+    invitado si no. Con eso, alguien con cuenta que abriera un enlace de
+    invitado en el mismo navegador —el operador probando el suyo, o cualquiera
+    con cuenta que reciba uno— abría la subida troceada como `guest:<token>`
+    (ahí ganaba el invitado) y luego cada trozo se identificaba como `user:<id>`
+    (ahí ganaba la sesión): no coincidían nunca y la subida moría con 404
+    «Upload session not found». Reproducido en el navegador contra la imagen
+    publicada 2.3.1. Ahora se comprueban **todas** las credenciales que trae la
+    petición. Lo que la comprobación protege sigue protegido: con dos enlaces de
+    invitado distintos, el segundo sigue sin poder tocar la subida del primero.
 
 Lo que **no** es una diferencia, aunque lo pareciera: el HTML de las páginas sale
 con el mismo `Cache-Control: private, no-cache, no-store, max-age=0,
@@ -178,5 +189,10 @@ contestaba antes a quien copió mal un enlace.
 | Almacén, cuota, lápidas, concurrencia | `go test ./internal/store` |
 | Subidas troceadas y barrido | `go test ./internal/uploads` |
 | Parada con transferencias en vuelo | `go test ./cmd/docdrop` |
-| Recorrido de navegador, integridad del fichero descifrado **por el camino en flujo** | `scripts/test-navegador.sh` (36 comprobaciones), contra las dos y contra la imagen |
+| Recorrido de navegador, integridad del fichero descifrado **por el camino en flujo** | `scripts/test-navegador.sh` (39 comprobaciones), contra el binario y contra la imagen |
+
+El recorrido pasa entero contra el binario y contra la imagen. **Contra el
+artefacto de Node falla una comprobación**: la subida por el enlace de invitado
+desde un navegador con sesión, que es el defecto 10 de arriba. No es una
+regresión del port —está en 2.3.1— y es la razón de que ese punto se corrija.
 | Node 2.3.1 → Go → el mismo Node | `scripts/test-compatibilidad.sh` (55 comprobaciones) |
