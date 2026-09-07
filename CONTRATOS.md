@@ -196,3 +196,4 @@ artefacto de Node falla una comprobación**: la subida por el enlace de invitado
 desde un navegador con sesión, que es el defecto 10 de arriba. No es una
 regresión del port —está en 2.3.1— y es la razón de que ese punto se corrija.
 | Node 2.3.1 → Go → el mismo Node | `scripts/test-compatibilidad.sh` (55 comprobaciones) |
+| Uso de memoria acotado | 1 GiB de ida y vuelta contra el binario: RSS 11,6 → 12,9 MB, SHA-256 idéntico, rango de 500 MB exacto |
