@@ -178,5 +178,5 @@ contestaba antes a quien copió mal un enlace.
 | Almacén, cuota, lápidas, concurrencia | `go test ./internal/store` |
 | Subidas troceadas y barrido | `go test ./internal/uploads` |
 | Parada con transferencias en vuelo | `go test ./cmd/docdrop` |
-| Recorrido de navegador, integridad del fichero descifrado | `scripts/test-navegador.sh` (34 comprobaciones), contra las dos y contra la imagen |
+| Recorrido de navegador, integridad del fichero descifrado **por el camino en flujo** | `scripts/test-navegador.sh` (36 comprobaciones), contra las dos y contra la imagen |
 | Node 2.3.1 → Go → el mismo Node | `scripts/test-compatibilidad.sh` (55 comprobaciones) |
