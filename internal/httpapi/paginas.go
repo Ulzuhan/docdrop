@@ -5,9 +5,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-
-	"github.com/Ulzuhan/docdrop/internal/auth"
-	"github.com/Ulzuhan/docdrop/internal/store"
 )
 
 const (
@@ -64,8 +61,8 @@ func (s *Server) documento(w http.ResponseWriter, r *http.Request, d datos) {
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	// El HTML es privado: enseña el correo de quien entra y decide si ve el
-	// panel o la portada.
-	h.Set("Cache-Control", "no-store")
+	// panel o la portada. El valor es el mismo que emite la versión de Node.
+	h.Set("Cache-Control", "private, no-cache, no-store, max-age=0, must-revalidate")
 	w.WriteHeader(http.StatusOK)
 	_ = plantilla.Execute(w, d)
 }
@@ -109,22 +106,20 @@ func (s *Server) paginaInicio(w http.ResponseWriter, r *http.Request) {
 // —72 bits que cualquiera que los tenga puede usar—, así que un rastreador que
 // encuentre uno y lo publique regala el fichero al mundo.
 func (s *Server) paginaDescarga(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if !store.IDValido(id) {
-		id = ""
-	}
-	s.documento(w, r, datos{Pagina: "download", FicheroID: id, NoIndex: true})
+	// El id va tal cual, sin filtrar: uno inválido tiene que llegar al cliente
+	// para que pregunte y reciba el mismo «no existe» que en la versión de
+	// Node. Filtrarlo aquí cambiaría la página que ve quien copió mal un
+	// enlace. Sale escapado por `html/template`, y la ruta es de un solo
+	// segmento, así que no hay nada que se pueda colar por ahí.
+	s.documento(w, r, datos{Pagina: "download", FicheroID: r.PathValue("id"), NoIndex: true})
 }
 
 // GET /guest/{token} — la página del invitado. Tampoco puede indexarse: el
 // token de la ruta es lo que concede la subida, así que uno indexado es una
 // puerta abierta con cuenta atrás.
 func (s *Server) paginaInvitado(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue("token")
-	if !auth.TokenValido(token) {
-		token = ""
-	}
-	s.documento(w, r, datos{Pagina: "guest", TokenInvitado: token, NoIndex: true})
+	// Igual que la de descarga: el token va tal cual y quien decide es la API.
+	s.documento(w, r, datos{Pagina: "guest", TokenInvitado: r.PathValue("token"), NoIndex: true})
 }
 
 // POST /share — el objetivo declarado en el manifiesto para el menú «Compartir»

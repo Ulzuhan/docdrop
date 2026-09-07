@@ -162,6 +162,12 @@ trozo, longitud de cabecera, tope 64 KiB) para devolver la cabecera cifrada en
    sale en flujo y sin longitud, como en Node.
 9. **`/healthz`** es una ruta nueva. No expone nada: responde `ok`.
 
+Lo que **no** es una diferencia, aunque lo pareciera: el HTML de las páginas sale
+con el mismo `Cache-Control: private, no-cache, no-store, max-age=0,
+must-revalidate` que emite Node, y un id inválido en `/d/<id>` llega al cliente
+tal cual —escapado por `html/template`— para que la página conteste lo mismo que
+contestaba antes a quien copió mal un enlace.
+
 ## 7. Lo que se prueba, y dónde
 
 | Comprobación | Dónde |
