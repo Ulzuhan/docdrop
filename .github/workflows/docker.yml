@@ -35,6 +35,12 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Sin `id-token: write` no se puede firmar por OIDC contra Sigstore, y sin
+      # `attestations: write` no se puede guardar la attestation firmada. Los
+      # dos son el motivo de que hasta ahora no hubiera firma: no es que
+      # fallara, es que no se pedía el permiso.
+      id-token: write
+      attestations: write
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -81,8 +87,16 @@ jobs:
           # digests en un manifiesto.
           platforms: linux/amd64
           push: true
-          # Attestations: procedencia del build y SBOM, verificables con
-          # `gh attestation verify` antes de desplegar.
+          # Metadatos de procedencia y SBOM que genera BuildKit y sube al
+          # registro junto a la imagen.
+          #
+          # OJO CON LO QUE ESTO ES Y NO ES, porque aquí ponía que eran
+          # «verificables con gh attestation verify» y es falso: BuildKit los
+          # escribe como declaraciones in-toto EN CLARO, sin firma. Cubren la
+          # integridad —el digest del índice los encadena— pero no el origen:
+          # cualquiera con escritura en el paquete podría publicar una
+          # procedencia inventada. Lo que sí firma es el paso de attestation de
+          # más abajo, y eso es lo que verifica `gh attestation verify`.
           provenance: mode=max
           sbom: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -97,6 +111,37 @@ jobs:
       # tags, esto lo normaliza para el escáner.
       - id: ref
         run: echo "ref=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # LA FIRMA. Lo de arriba son metadatos; esto es lo que dice QUIÉN los hizo.
+      #
+      # Firma con la identidad OIDC de esta ejecución contra Sigstore: no hay
+      # clave privada que guardar, rotar ni perder. La attestation queda en el
+      # almacén de GitHub y, con `push-to-registry`, también junto a la imagen
+      # en GHCR.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ steps.ref.outputs.ref }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      # Y la puerta: se verifica lo que se acaba de firmar, aquí mismo. Un
+      # release cuya firma no verifique se queda en rojo, y un rojo no se ancla
+      # en producción.
+      #
+      # `--signer-workflow` es lo que convierte «está firmado» en «lo firmó ESTE
+      # workflow de ESTE repositorio». Sin él valdría cualquier attestation
+      # legítima de cualquier sitio, que no es lo que se quiere saber.
+      - name: Verificar la firma de lo recién publicado
+        run: |
+          gh attestation verify \
+            "oci://${REGISTRY}/${IMAGEN}@${DIGEST}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/docker.yml"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGEN: ${{ steps.ref.outputs.ref }}
+          DIGEST: ${{ steps.build.outputs.digest }}
 
       # La puerta: la imagen recién publicada, escaneada capa a capa (SO base,
       # npm y pip incluidos) contra las bases de CVEs, y el workflow en ROJO si
