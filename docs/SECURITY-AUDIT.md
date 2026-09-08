@@ -1,5 +1,9 @@
 # Security and infrastructure audit
 
+> Informe histórico: incluye rutas y herramientas del backend Node retirado.
+> Para operar la versión activa React + Go, véanse [DEPLOYMENT.md](../DEPLOYMENT.md),
+> [CONTRATOS.md](../CONTRATOS.md) y el [registro de limpieza](CLEANUP-2026-09-08.md).
+
 Last re-audited: 2026-08-27.
 
 ## Scope and threat model

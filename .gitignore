@@ -1,47 +1,34 @@
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-__pycache__
+# Dependencies and tooling caches
+/node_modules/
+*.tsbuildinfo
+__pycache__/
 
-# testing
-/coverage
+# Generated application and test output
+/docdrop
+/build/
+/coverage/
+/test-results/
+/playwright-report/
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
 
-# next.js
+# Private configuration, certificates and uploaded data
+.env*
+!.env.example
+*.pem
+/.local/
+/data/
+.docdrop-uploads/
+
+# Legacy generated caches: never reintroduce them after switching old branches
 /.next/
 /out/
+.vercel/
+next-env.d.ts
 
-# production
-/build
-
-# misc
+# Editor and package-manager noise
 .DS_Store
-*.pem
-
-# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files
-.env*.local
-.env
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# DocDrop uploads (never commit user files!)
-.docdrop-uploads/
-# La interfaz construida por vite. Se genera con `npm run build:web` y la
-# incrusta el binario; el `.gitkeep` sí se guarda, porque sin él `go:embed`
-# no compila en un clon limpio.
-/internal/web/dist/*
-!/internal/web/dist/.gitkeep
-
-# El binario, si se compila en el propio directorio.
-/docdrop

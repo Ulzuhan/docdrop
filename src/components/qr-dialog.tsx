@@ -70,7 +70,6 @@ export function QrDialog({ path, filename }: { path: string; filename?: string }
 
         <div className="flex flex-col items-center gap-4 py-2">
           {qr ? (
-            // eslint-disable-next-line @next/next/no-img-element -- data: URI generado en el cliente
             <img
               src={qr.dataUrl}
               alt={`QR code for the download link${filename ? ` of ${filename}` : ""}`}

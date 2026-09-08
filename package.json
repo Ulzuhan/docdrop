@@ -15,36 +15,40 @@
   "keywords": [
     "file-sharing",
     "self-hosted",
-    "nextjs",
+    "golang",
     "chunked-upload",
     "resumable-upload",
     "pwa",
-    "zip-streaming"
+    "zip-streaming",
+    "react"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "node scripts/start.js",
-    "lint": "eslint",
-    "postbuild": "node scripts/prepare-standalone.js",
-    "test:upload": "node scripts/test-upload.mjs",
-    "test": "vitest run && ./scripts/run-suites.sh",
-    "test:acceso": "node scripts/test-acceso.mjs",
-    "test:ficheros": "node scripts/test-ficheros.mjs",
-    "test:unit": "vitest run",
-    "test:backchannel": "bash scripts/test-backchannel.sh",
+    "dev": "npm run build && bash scripts/dev.sh",
+    "build": "npm run build:web && go build -trimpath -o docdrop ./cmd/docdrop",
     "build:web": "vite build",
-    "test:navegador": "bash scripts/test-navegador.sh"
+    "start": "./docdrop",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && npm run test:unit && npm run test:go && npm run test:http && npm run test:backchannel",
+    "test:unit": "vitest run",
+    "test:go": "go test -race ./cmd/... ./internal/...",
+    "test:http": "bash scripts/run-suites.sh",
+    "test:backchannel": "bash scripts/test-backchannel.sh",
+    "test:navegador": "bash scripts/test-navegador.sh",
+    "test:compatibilidad": "bash scripts/test-compatibilidad.sh",
+    "test:acceso": "bash scripts/run-suites.sh acceso",
+    "test:ficheros": "bash scripts/run-suites.sh ficheros",
+    "test:upload": "bash scripts/run-suites.sh upload",
+    "test:e2ee": "bash scripts/run-suites.sh e2ee"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.28.0",
-    "next": "^16.2.12",
     "next-themes": "^0.4.6",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
@@ -61,15 +65,16 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "^16.2.12",
     "shadcn": "^4.16.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vite": "8.2.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "@eslint/js": "^9.39.4",
+    "typescript-eslint": "^8.59.4",
+    "eslint-plugin-react-hooks": "^7.1.1"
   },
   "overrides": {
-    "sharp": "^0.35.0",
     "postcss": "^8.5.18",
     "nanoid": "3.3.18",
     "js-yaml": "^4.3.1",

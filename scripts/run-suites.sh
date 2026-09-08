@@ -8,19 +8,13 @@
 # eso no habría forma de ejercitar una sola ruta.
 #
 #   ./scripts/run-suites.sh          # todas
-#   ./scripts/run-suites.sh auth     # una
+#   ./scripts/run-suites.sh acceso     # una
 #
 # Necesita un build antes (`npm run build`). Sale con código distinto de cero si
 # algo falla, que es lo que lee CI.
 #
-# LAS MISMAS SUITES VALEN PARA LAS DOS IMPLEMENTACIONES. Con
-# `DOCDROP_TEST_LAUNCH` se arranca ese comando en vez del lanzador de Node, y
-# con `DOCDROP_TEST_BUILD_STAMP` se compara la frescura contra ese fichero en
-# vez de contra `.next/BUILD_ID`. Ninguna aserción cambia: si una suite pasa
-# contra uno y falla contra el otro, la diferencia es real.
-#
-#   DOCDROP_TEST_LAUNCH=./docdrop DOCDROP_TEST_BUILD_STAMP=./docdrop \
-#     ./scripts/run-suites.sh
+# DOCDROP_TEST_LAUNCH permite probar la imagen o un binario alternativo.
+# DOCDROP_TEST_BUILD_STAMP identifica el artefacto construido.
 set -uo pipefail
 set -m
 
@@ -41,12 +35,14 @@ RAIZ_PRUEBAS="$(mktemp -d)"
 # porque cada lado miraba en un sitio distinto.
 export ALMACEN="$RAIZ_PRUEBAS/almacen"
 export DOCDROP_DATA_DIR="$ALMACEN"
+export DOCDROP_TEST_RUN_ID="${RAIZ_PRUEBAS##*/}"
 
 # Qué se arranca, y contra qué se compara su frescura.
-LANZADOR="${DOCDROP_TEST_LAUNCH:-node scripts/start.js}"
-SELLO="${DOCDROP_TEST_BUILD_STAMP:-.next/BUILD_ID}"
+LANZADOR="${DOCDROP_TEST_LAUNCH:-./docdrop}"
+SELLO="${DOCDROP_TEST_BUILD_STAMP:-./docdrop}"
 if [ ! -e "$SELLO" ]; then
   echo "no existe $SELLO: falta construir antes de probar"
+  rm -f "$LOG"; rmdir "$RAIZ_PRUEBAS"
   exit 1
 fi
 
@@ -62,13 +58,11 @@ parar() {
   # y la suite siguiente ni arranca. Se retira por etiqueta, que es lo que los
   # distingue de un contenedor de verdad.
   if command -v docker >/dev/null 2>&1; then
-    docker ps -aq --filter "label=io.kaicorp.docdrop.prueba=1" 2>/dev/null \
+    docker ps -aq --filter "label=io.kaicorp.docdrop.prueba=1" --filter "label=io.kaicorp.docdrop.run=$DOCDROP_TEST_RUN_ID" 2>/dev/null \
       | xargs -r docker rm -f >/dev/null 2>&1
   fi
   [ -n "$servidor" ] || return 0
-  # El grupo entero, no el proceso: `next start` levanta un trabajador aparte, y
-  # matar sólo al padre deja el puerto ocupado. La siguiente suite encontraría un
-  # servidor en pie, decidiría que ya ha arrancado, y mediría el de antes.
+  # Detiene también el lanzador de imagen, si lo hay.
   kill -- -"$servidor" 2>/dev/null || kill "$servidor" 2>/dev/null
   wait "$servidor" 2>/dev/null
   servidor=""
@@ -78,7 +72,9 @@ parar() {
   done
   echo "aviso: el puerto $PUERTO sigue ocupado"
 }
-trap 'parar; exit 130' INT TERM
+limpiar() { parar; rm -f "$LOG"; rm -rf "$RAIZ_PRUEBAS"; }
+trap limpiar EXIT
+trap 'exit 130' INT TERM
 
 arrancar() {
   local max_total=21474836480
@@ -91,13 +87,7 @@ arrancar() {
   # Almacén aparte, y no el de verdad. Sin esto cada tirada de pruebas dejaba sus
   # secretos mezclados con los de la gente, en el mismo directorio y con la misma
   # limpieza automática pasándoles por encima.
-  # Se arranca con el MISMO lanzador que usa producción, no con `next start`.
-  #
-  # Con `output: "standalone"` se construyen dos artefactos: `.next`, que es lo que
-  # serviría `next start`, y `.next/standalone`, que es lo que arranca el servicio
-  # de verdad a través de `scripts/start.js`. Probar el primero es probar algo que
-  # nadie ejecuta, y el paso de preparación poda ficheros del segundo.
-  #
+  # Se prueba el binario o la imagen final, con un almacén por suite.
   # OJO con este bloque: las asignaciones van encadenadas con `\`, y meter un
   # comentario entre medias rompe la continuación **en silencio** — el proceso
   # arranca igual, pero sin ninguna de las variables. Pasó: la cuota de pruebas no
@@ -111,7 +101,7 @@ arrancar() {
     DOCDROP_OIDC_ISSUER="http://127.0.0.1:9999/application/o/docdrop/" \
     DOCDROP_OIDC_INTERNAL_BASE="http://127.0.0.1:9999" \
     DOCDROP_INSECURE_COOKIES=1 \
-    PORT="$PUERTO" $LANZADOR >"$LOG" 2>&1 &
+    HOSTNAME=127.0.0.1 PORT="$PUERTO" $LANZADOR >"$LOG" 2>&1 &
   servidor=$!
 
   for _ in $(seq 1 90); do
@@ -156,7 +146,7 @@ fallo=0
 for suite in "${SUITES[@]}"; do
   rm -rf "$ALMACEN"
   mkdir -p "$ALMACEN"
-  arrancar || { fallo=1; continue; }
+  arrancar || { fallo=1; parar; continue; }
   printf "%-10s " "$suite"
   guion="scripts/test-$suite.mjs"
   # La suite de cifrado importa el módulo TypeScript de verdad (src/lib/e2ee.ts),

@@ -1,6 +1,6 @@
 /* GENERADO por kaicorplabs/tools/sync-theme.sh — NO EDITAR AQUÍ.
    El original está en el repo kaicorplabs (theme/). */
-import Link from "next/link";
+import Link from "@/components/link";
 
 /**
  * Cabecera común de KaiCorp Labs.
@@ -37,7 +37,6 @@ export function KaiCorpHeader({
           className="flex shrink-0 items-center gap-2 transition-opacity hover:opacity-80"
           title="KaiCorp Labs"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/kaicorp-mark.png" alt="" width={24} height={24} className="block size-6" />
         </Link>
 

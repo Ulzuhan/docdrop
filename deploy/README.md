@@ -1,18 +1,22 @@
 # Isolated deployment (optional)
 
 Everything needed to run DocDrop as a system service with its own user and a strict
-sandbox. **Not required to use it**: `npm run start` (or a user service, see the main
+sandbox. **Not required to use it**: `./docdrop` (or a user service, see the main
 README) is enough. Worth it if the service will be exposed often or left unattended.
 
 ## Install
 
 ```bash
-npm run build
+npm ci && npm run build
 sudo ./deploy/install.sh     # creates the user, deploys and starts it
 ```
 
 `install.sh` is idempotent: re-running it deploys a new version while keeping
-whatever is in `/etc/docdrop.env`.
+whatever is in `/etc/docdrop.env` and the current data in `/var/lib/docdrop`.
+It installs a root-owned binary at `/opt/docdrop/docdrop`, not a Node server.
+Only the build machine needs Node/npm and Go; the target needs Linux, systemd
+and CA certificates. Updates stop the service; choose a quiet transfer window.
+The installer does not erase leftover legacy files or data.
 
 ## What the sandbox contains
 
@@ -75,8 +79,8 @@ journalctl -u docdrop | grep mode      # which mode it started in
 ss -tlnp | grep 3010                   # confirm it only listens on loopback
 ```
 
-## Note on `next start`
+## Runtime
 
-The unit starts the service with `node start.js`, not `node server.js`. `start.js`
-raises the HTTP server's `requestTimeout` before handing over to Next; Node's default
-(5 minutes) cuts large uploads off mid-transfer. See the main README for the details.
+The unit starts `/opt/docdrop/docdrop`; the interface is embedded. Configure
+request timeouts with `DOCDROP_REQUEST_TIMEOUT_MS`. The 8-second shutdown budget
+must fit within the unit's 10-second `TimeoutStopSec`.

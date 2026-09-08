@@ -1,6 +1,6 @@
 /* GENERADO por kaicorplabs/tools/sync-theme.sh — NO EDITAR AQUÍ.
    El original está en el repo kaicorplabs (theme/). */
-import Link from "next/link";
+import Link from "@/components/link";
 
 /**
  * Pie común de KaiCorp Labs.
@@ -45,7 +45,6 @@ export function KaiCorpFooter({ current }: { current?: string }) {
           className="flex items-center gap-2 text-xs transition-opacity hover:opacity-80"
           style={{ color: "var(--kc-text-2)" }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/kaicorp-mark.png" alt="" width={18} height={18} className="block size-[18px]" />
           <span>
             Built by{" "}

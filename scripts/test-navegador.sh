@@ -9,8 +9,7 @@
 #   npm run build:web && go build -o /tmp/docdrop ./cmd/docdrop
 #   DOCDROP_TEST_LAUNCH=/tmp/docdrop npm run test:navegador
 #
-# Sin `DOCDROP_TEST_LAUNCH` corre contra el artefacto de Node, que es lo que
-# permite comprobar que el recorrido no distingue implementación.
+# Por defecto corre contra ./docdrop; también acepta el lanzador de imagen.
 set -uo pipefail
 set -m
 
@@ -20,12 +19,17 @@ PUERTO_APP="${PUERTO_APP:-3971}"
 PUERTO_TLS="${PUERTO_TLS:-3972}"
 export PUERTO_IDP="${PUERTO_IDP:-9971}"
 export BASE="https://127.0.0.1:$PUERTO_TLS"
+for puerto in "$PUERTO_APP" "$PUERTO_TLS" "$PUERTO_IDP"; do
+  if ss -tln | grep -qE ":$puerto "; then
+    echo "puerto de prueba ocupado: $puerto" >&2; exit 1
+  fi
+done
 WORK="$(mktemp -d)"
 export LLAVE="$WORK/llave.pem" CERT="$WORK/cert.pem"
 export PUERTO_APP PUERTO_TLS
 LOG="$WORK/servidor.log"
 
-LANZAR="${DOCDROP_TEST_LAUNCH:-node scripts/start.js}"
+LANZAR="${DOCDROP_TEST_LAUNCH:-./docdrop}"
 
 servidor=""
 parar() {
@@ -43,7 +47,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout "$LLAVE" -out "$CERT" \
 
 # El origen público es el del proxy TLS: es lo que compara el guardián de origen
 # y lo que sale en canonical y OpenGraph.
-NODE_ENV=production PORT="$PUERTO_APP" HOSTNAME=127.0.0.1 \
+DOCDROP_INSECURE_COOKIES=0 PORT="$PUERTO_APP" HOSTNAME=127.0.0.1 \
   DOCDROP_DATA_DIR="$WORK/datos" \
   DOCDROP_MAX_TOTAL_BYTES=104857600 \
   DOCDROP_SESSION_SECRET="secreto-de-navegador-con-treinta-y-dos" \

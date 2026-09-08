@@ -1,5 +1,10 @@
 # DocDrop: de Next a React + Go
 
+**Actualización 08-09-2026:** la rama activa queda sólo con React/Vite + Go.
+El backend Node se conserva en el historial y en la imagen publicada, no en
+un segundo árbol de código. [Limpieza y comprobaciones](CLEANUP-2026-09-08.md).
+El resto de este documento conserva el plan y la evidencia de migración.
+
 Plan de trabajo del producto. El plan de infraestructura, con el encaje en el
 laboratorio, el despliegue y la vuelta atrás, está en
 `kaicorplabs/docs/39-plan-docdrop-react-go.md`.
@@ -82,7 +87,7 @@ internal/auth/       OIDC, cookies firmadas, usuarios, revocaciones
 internal/store/      meta, blobs, cuota, plazas, continuaciones, barrido
 internal/uploads/    sesiones troceadas
 internal/web/        HTML mínimo + go:embed de los assets compilados
-web/src/             React/TypeScript, mismo diseño, E2EE intacto
+src/                 React/TypeScript, mismo diseño, E2EE intacto
 scripts/             suites compartidas Node↔Go y compatibilidad
 ```
 

@@ -1,13 +1,14 @@
 # Contratos de DocDrop
 
-Lo que la implementación de Go tiene que cumplir para poder sustituir a la de
-Node **y para que se pueda volver atrás sobre los mismos datos**. Referencia:
+Contrato de la implementación activa en Go **y de la vuelta atrás sobre los
+mismos datos**. Referencia histórica:
 la versión 2.3.1, imagen
 `ghcr.io/ulzuhan/docdrop:2.3.1@sha256:525ef454305d7455c774d4463d11feb029ba8091ef4b83508a7b4002c19f0f67`.
 
-Las suites `acceso`, `ficheros`, `upload`, `e2ee` y `backchannel` se ejecutan
-contra cualquiera de las dos con `DOCDROP_TEST_LAUNCH`, **sin cambiar ninguna
-aserción**. Dan salida idéntica.
+Las suites `acceso`, `ficheros`, `upload`, `e2ee` y `backchannel` apuntan por
+defecto a `./docdrop`. `DOCDROP_TEST_LAUNCH` permite usar la imagen final sin
+cambiar aserciones. La compatibilidad con Node se verifica aparte contra su
+digest publicado; ya no se mantiene un backend Node en la rama activa.
 
 ## 1. El árbol de datos
 

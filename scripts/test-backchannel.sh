@@ -34,7 +34,7 @@ server_pid=""
 
 stop() {
   [ -n "$server_pid" ] || return 0
-  # El grupo entero: el standalone deja un trabajador que se queda el puerto.
+  # El grupo entero: también detiene un lanzador alternativo y sus hijos.
   kill -- -"$server_pid" 2>/dev/null || kill "$server_pid" 2>/dev/null
   wait "$server_pid" 2>/dev/null
   server_pid=""
@@ -54,7 +54,7 @@ DOCDROP_DATA_DIR="$WORK/datos" \
   DOCDROP_OIDC_REDIRECT_URI="$BASE/api/auth/callback" \
   DOCDROP_INSECURE_COOKIES=1 \
   HOSTNAME=127.0.0.1 PORT="$PORT" \
-  ${DOCDROP_TEST_LAUNCH:-node scripts/start.js} >"$LOG" 2>&1 &
+  ${DOCDROP_TEST_LAUNCH:-./docdrop} >"$LOG" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 90); do

@@ -2,7 +2,7 @@
    El original está en el repo kaicorplabs (theme/). */
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from "react";
  * por `extra`; lo que no tenga —una página de ajustes, por ejemplo— simplemente no
  * aparece. Los idiomas y los temas no están aquí a propósito: son de quien los tenga.
  *
- * Sin dependencias, como el resto del cromado: React, `next/link` y los tokens `--kc-*`.
+ * Sin dependencias, como el resto del cromado: React, enlaces HTML y los tokens `--kc-*`.
  * Las cinco aplicaciones tienen paletas distintas —`bg-card` en una es `bg-surface` en
  * otra—, así que los colores se toman de las variables comunes, que es el único idioma
  * que hablan todas.

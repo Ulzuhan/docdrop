@@ -1,11 +1,4 @@
-# La imagen del servicio, con el backend en Go.
-#
-# La de Node vive en `Dockerfile.node` y ya no se publica. Se conserva mientras
-# dure la observación, porque es con lo que se valida el retorno a 2.3.1.
-#
-# Durante la migración esto fue `Dockerfile.go-candidate`, y nunca
-# `Dockerfile.go`: esa extensión hace que el herramental de Go intente
-# compilarlo y `go build ./...` falla con «illegal character U+0023».
+# React assets are built with Node; only the Go binary reaches the runtime.
 
 FROM node:22-alpine AS assets
 WORKDIR /app
@@ -21,10 +14,7 @@ RUN npm ci
 # en SecretDrop, y por eso el recorrido de navegador comprueba un estilo
 # calculado contra esta imagen y no sólo que el CSS responda 200.
 COPY vite.config.mts postcss.config.mjs tsconfig.json ./
-COPY web ./web
 COPY public ./public
-# El árbol de React se comparte con la versión de Node: se construye desde
-# `src/`, sin copias paralelas que puedan divergir.
 COPY src ./src
 RUN npx vite build
 
@@ -49,7 +39,7 @@ ENV HOSTNAME=0.0.0.0 PORT=3010 DOCDROP_DATA_DIR=/data
 # HTTPS.
 #
 # uid 1001, EL MISMO que la imagen de Node —y distinto del 10001 de las otras
-# cuatro—: los ficheros de /srv/kaicorp/docdrop son suyos, y cambiarlo dejaría
+# servicios—: los ficheros de /srv/kaicorp/docdrop son suyos, y cambiarlo dejaría
 # el almacén ilegible para el servicio.
 RUN apk -U upgrade --no-cache \
  && apk add --no-cache ca-certificates \

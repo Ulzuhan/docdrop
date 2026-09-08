@@ -3,6 +3,7 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 )
@@ -48,16 +49,16 @@ func TestTransferenciaCortadaNiCuentaNiRegala(t *testing.T) {
 	b := nuevoBanco(t)
 	id := b.fichero(t, 1<<20, 1)
 
-	res := b.pedir(t, "GET", "/api/download/"+id, id, nil)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("estado %d", res.StatusCode)
+	// El búfer TCP puede aceptar el MiB entero antes de que el cliente cierre.
+	// Cortamos la escritura del transporte de forma explícita, sin reloj ni
+	// suponer que leer 4 KiB significa que el servidor sólo envió 4 KiB.
+	w := &respuestaCortada{ResponseRecorder: httptest.NewRecorder()}
+	r := httptest.NewRequest(http.MethodGet, "/api/download/"+id, nil)
+	r.Header.Set("X-Forwarded-For", id)
+	ConNonce(b.Server).ServeHTTP(w, r)
+	if w.Code != http.StatusOK || w.Body.Len() != 4096 {
+		t.Fatalf("el corte no se ejercitó: estado %d, bytes %d", w.Code, w.Body.Len())
 	}
-	// Se lee un poco y se corta, como una pestaña que se cierra a mitad.
-	if _, err := io.CopyN(io.Discard, res.Body, 4096); err != nil {
-		t.Fatal(err)
-	}
-	res.Body.Close()
-	b.asentar(t)
 
 	if c := b.contador(t, id); c != 0 {
 		t.Fatalf("una transferencia cortada contó: %d", c)
@@ -173,4 +174,13 @@ func TestVistaPreviaNoCuenta(t *testing.T) {
 	if got := res.Header.Get("Content-Disposition"); got[:10] != "attachment" {
 		t.Errorf("un SVG debería bajarse, no verse: %q", got)
 	}
+}
+
+// Simula una conexión que acepta sólo un prefijo antes de cerrarse. El
+// servidor real, su almacén y el reintento HTTP siguen siendo los del banco.
+type respuestaCortada struct{ *httptest.ResponseRecorder }
+
+func (w *respuestaCortada) Write(p []byte) (int, error) {
+	n, _ := w.ResponseRecorder.Write(p[:min(len(p), 4096)])
+	return n, io.ErrClosedPipe
 }

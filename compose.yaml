@@ -7,6 +7,10 @@ services:
     # build: .
     container_name: docdrop
     restart: unless-stopped
+    stop_grace_period: 10s
+    env_file:
+      - path: .env
+        required: false
     # Al parar, el servicio cierra la admisión y CORTA de forma controlada las
     # transferencias en curso: son reanudables, y esperar a una subida de gigas
     # no cabe en ninguna ventana de parada razonable. Su presupuesto (8 s por

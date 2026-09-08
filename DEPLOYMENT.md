@@ -5,7 +5,7 @@ DocDrop debe ejecutarse como **una sola instancia** detrás de un proxy TLS. La 
 ## Docker Compose
 
 1. Copia `.env.example` a `.env`, genera `DOCDROP_SESSION_SECRET` con `openssl rand -hex 32` (mínimo 32 bytes; con menos, el arranque falla cerrado) y configura OIDC con URLs HTTPS públicas — basta `DOCDROP_OIDC_ISSUER`, porque el resto de endpoints se leen del discovery del proveedor. Añade `DOCDROP_ENROLL_URL` con el flujo de alta de tu proveedor: es el botón «Request an account» de la portada y sin ella no aparece — que es lo correcto si tu proveedor no tiene alta autoservicio.
-2. Ejecuta `docker compose up -d --build`.
+2. Ejecuta `docker compose up -d` para la imagen publicada. Para construir desde el checkout, habilita `build: .` en el compose y utiliza una etiqueta local antes de `up -d --build`.
 3. Publica únicamente el proxy HTTPS; Compose enlaza la aplicación a `127.0.0.1:3010`. El propio `compose.yaml` trae comentado el servicio de túnel que permite quitar el bloque `ports:` entero.
 
 Desde la 3.0.0 la imagen **no lleva Node**: es un binario de Go con la interfaz embebida, corre como uid 1001 y pesa unos 26 MB. El arranque es el propio binario; si venías de una versión anterior con `command: [... exec node start.js]`, hay que cambiarlo por `exec docdrop`.
@@ -57,13 +57,23 @@ npm run build:web && go build -o docdrop ./cmd/docdrop
 DOCDROP_TEST_LAUNCH=./docdrop DOCDROP_TEST_BUILD_STAMP=./docdrop ./scripts/run-suites.sh
 DOCDROP_TEST_LAUNCH=./docdrop bash scripts/test-backchannel.sh
 DOCDROP_TEST_LAUNCH=./docdrop npm run test:navegador
-scripts/test-compatibilidad.sh          # contra el digest exacto de vuelta atrás
+npm run test:compatibilidad          # contra el digest exacto de vuelta atrás
 ```
 
 No despliegues si algo falla. El modelo de amenaza completo y sus verificaciones están en [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md).
 
 ## Vuelta atrás
 
-El retorno es la imagen de Node **2.3.1** (`Dockerfile.node` construye la misma). Se para el servicio, se vuelve al digest y al comando anteriores **sobre el árbol de datos actual**, y se arranca. `scripts/test-compatibilidad.sh` comprueba exactamente ese camino —Node publicado → Go → el mismo Node, por turnos, sin escritores simultáneos— y verifica que lo que Go agotó sigue agotado y lo caducado sigue caducado.
+El retorno histórico es la imagen publicada de Node **2.3.1**, fijada por digest:
+
+`ghcr.io/ulzuhan/docdrop:2.3.1@sha256:525ef454305d7455c774d4463d11feb029ba8091ef4b83508a7b4002c19f0f67`.
+
+Su código y `Dockerfile.node` ya no están en la rama activa; no son necesarios para usar esa imagen. Se para el servicio, se vuelve al digest y al comando anteriores **sobre el árbol de datos actual**, y se arranca. `scripts/test-compatibilidad.sh` comprueba exactamente ese camino —Node publicado → Go → el mismo Node, por turnos, sin escritores simultáneos— y verifica que lo que Go agotó sigue agotado y lo caducado sigue caducado.
 
 **Restaurar una copia no es una vuelta atrás.** Perdería lo subido después y, peor, resucitaría ficheros que alguien ya retiró y contadores ya gastados: en un servicio cuyo producto es «esto se borra solo», eso es peor que el fallo que se intentaba arreglar. Si el estado estuviera corrupto, se aísla y se decide la recuperación explícitamente.
+
+## Estado del repositorio
+
+La limpieza del 08-09-2026 retira el backend Node y deja React/Vite + Go como
+única implementación mantenida. No modifica el formato de datos ni publica o
+despliega por sí misma. Véase [registro de limpieza](docs/CLEANUP-2026-09-08.md).

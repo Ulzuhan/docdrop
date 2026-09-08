@@ -1,26 +1,13 @@
 name: CI
 
-# Lint, types and all protocol suites on every push and PR. The container
-# workflow only proves the image builds; this one proves the code works.
-#
-# Desde la migración hay DOS implementaciones y las dos se prueban:
-#
-#   checks          Node, que sigue siendo la referencia de la vuelta atrás
-#   go              el binario: unitarias con -race, vet, y las MISMAS suites
-#   imagen          la imagen final, con las suites y el recorrido de navegador
-#   compatibilidad  el camino de la vuelta atrás, contra el DIGEST EXACTO de la
-#                   imagen de Node que corre en producción
-#
-# Las suites no se duplican: son las mismas apuntadas con DOCDROP_TEST_LAUNCH.
-# Si una pasa contra uno y falla contra el otro, la diferencia es real.
-#
-# Two orderings that are not obvious:
-#
-# - `tsc --noEmit` must run AFTER `next build`, because Next generates the types
-#   the routes rely on (RouteContext in .next/types) during the build. Running it
-#   first fails with TS2304 on every dynamic route.
-# - run-suites.sh starts the real launcher with a fresh store for each suite,
-#   including access, files, uploads and encrypted downloads.
+
+# One Go backend and one React frontend. The published Node image is used
+# only by the pinned rollback compatibility test, never built from this tree.
+# Every HTTP suite uses its own temporary store. Browser tests exercise both
+# the binary and final image, including the encrypted download journey.
+
+permissions:
+  contents: read
 
 on:
   push:
@@ -31,40 +18,17 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    env:
-      PORT: 3010
-      # Un secreto de usar y tirar, solo para que la suite pueda firmarse una
-      # sesión: subir dejó de ser público al mudar la identidad a Authentik.
-      # No abre nada — el servidor de CI vive noventa segundos y muere.
-      DOCDROP_SESSION_SECRET: ci-only-docdrop-secret-at-least-32-bytes
-
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      # node:22 to match the runtime image in the Dockerfile.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci
-
       - run: npm run lint
-
-      - run: npm run build
-
-      - run: npx tsc --noEmit
-
-      # La suite del cifrado no necesita servidor: es el módulo a solas, con el
-      # custodio malicioso como adversario. Si esto falla, nada más importa.
-      - run: npx vitest run
-
-      # Con un proveedor de mentira que FIRMA de verdad: el aviso de cierre de
-      # sesión no se puede probar de otra forma.
-      - run: npm run test:backchannel
-
-      - name: Run all HTTP protocol suites against isolated stores
-        run: ./scripts/run-suites.sh
+      - run: npm run typecheck
+      - run: npm run build:web
+      - run: npm run test:unit
 
   go:
     runs-on: ubuntu-latest
@@ -98,7 +62,7 @@ jobs:
 
       - run: go build -o docdrop ./cmd/docdrop
 
-      # Las mismas suites que pasa Node, sin tocar ninguna aserción.
+      # Contratos HTTP contra el backend único.
       - name: Suites HTTP contra el binario
         env:
           DOCDROP_TEST_LAUNCH: ./docdrop

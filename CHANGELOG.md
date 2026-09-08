@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Retire the legacy Next/Node backend, Dockerfile and startup scripts from the
+  active branch. Keep the published Node 2.3.1 rollback compatibility test.
+- Consolidate React screens, styles and local fonts under src/; keep encryption
+  and resumable transport unchanged. Node remains build/test tooling only.
+- Make development, npm commands, CI and systemd installation use Go.
+- Replace the migration-era README with current architecture and operating steps.
+- Scope test-container cleanup to its own run, excluding other agents' fixtures.
+- Refresh the build/test lockfile, removing Next-specific tooling.
+- Make the interrupted-download regression deterministic instead of relying on
+  how much the TCP buffer accepted before the client closed.
+
 ## 3.0.0 — 2026-09-07
 
 The server is now a single Go binary with the interface embedded. **The

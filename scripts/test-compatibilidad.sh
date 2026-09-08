@@ -25,7 +25,7 @@ set -m
 cd "$(dirname "$0")/.."
 
 IMAGEN_NODE="${DOCDROP_IMAGEN_NODE:-ghcr.io/ulzuhan/docdrop@sha256:525ef454305d7455c774d4463d11feb029ba8091ef4b83508a7b4002c19f0f67}"
-BINARIO_GO="${DOCDROP_TEST_LAUNCH:-}"
+BINARIO_GO="${DOCDROP_TEST_LAUNCH:-./docdrop}"
 PUERTO="${PUERTO:-3981}"
 export BASE="http://127.0.0.1:$PUERTO"
 export DOCDROP_SESSION_SECRET="secreto-de-compatibilidad-treinta-y-dos"

@@ -158,10 +158,10 @@ const outputs = [
   ["public/icons/icon-192.png", renderIcon(192)],
   ["public/icons/icon-512.png", renderIcon(512)],
   ["public/icons/icon-maskable-512.png", renderIcon(512, { maskable: true })],
-  // Next serves src/app/apple-icon.png as the apple-touch-icon tag.
-  ["src/app/apple-icon.png", renderIcon(180)],
-  // Next serves src/app/icon.png as the favicon automatically.
-  ["src/app/icon.png", renderIcon(64)],
+  // Standalone touch icon; served as a public resource.
+  ["public/apple-icon.png", renderIcon(180)],
+  // Standalone favicon; served as a public resource.
+  ["public/icon.png", renderIcon(64)],
 ];
 
 for (const [relative, buffer] of outputs) {

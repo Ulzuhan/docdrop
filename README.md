@@ -12,12 +12,12 @@ runs out of downloads.
 The problem it was built for: passing a 7 GB GoPro video between phones and laptops
 **without a messaging app recompressing it**.
 
-- **Go** on the server · React 19 · Tailwind v4 · shadcn/ui, built with vite
+- **Go** on the server · React 19 · Tailwind v4 · shadcn/ui, built with Vite
 - One binary: the interface is embedded, and the production image has no Node
 - No database: files and their metadata live on disk
 - Installable PWA, with support for the mobile "Share" menu
 - Multi-file and whole-folder uploads, chunked and resumable
-- End-to-end encrypted: files are ciphered in the browser and the key travels in
+- End-to-end encrypted: files are encrypted in the browser and the key travels in
   the part of the link the server never receives
 - Preview video, audio and images before downloading
 - Download several files at once as a streamed ZIP
@@ -29,486 +29,169 @@ The problem it was built for: passing a 7 GB GoPro video between phones and lapt
   <img src="assets/download.png" alt="What the recipient of a link sees: preview, remaining downloads and expiry" width="49%">
 </p>
 
----
-
 ## Quick start
 
-For production — the proxy's obligations, the single-instance requirement, the
-no-backup policy and its encryption nuance — see [`DEPLOYMENT.md`](DEPLOYMENT.md).
+DocDrop runs one Go process with an embedded React interface. There is no Node
+server, Next.js application or database to operate. An OIDC provider is required
+for sign-in; without credentials, uploads and the dashboard remain closed.
 
 ### Docker
 
-```bash
-docker run -d --name docdrop \
-  -p 127.0.0.1:3010:3010 \
-  -v docdrop-data:/data \
-  ghcr.io/ulzuhan/docdrop:latest
-```
-
-Or with Compose, using the [`compose.yaml`](compose.yaml) in this repo:
+Copy [`.env.example`](.env.example) to `.env`, generate a session secret with
+`openssl rand -hex 32`, and configure the OIDC client, issuer and callback URL.
+Then:
 
 ```bash
 docker compose up -d
 ```
 
-Uploads live in the `/data` volume, so replacing the container never loses them.
-The image runs as an unprivileged user (uid 1001), ships a healthcheck, weighs
-about 26 MB and is built for `linux/amd64`. (arm64 is deliberately not built: the
-day it is wanted, the way is a native-arm runner matrix, not emulation.)
+The supplied Compose file reads `.env`, binds to `127.0.0.1:3010`, and keeps
+uploads in a named volume at `/data`. Put a TLS proxy in front of it. The image
+runs as uid **1001** and includes the `docdrop sonda` healthcheck.
 
-`:latest` is the most recent release. Pin `:1.0.1` if you would rather decide when
-to move, or `:1.0` / `:1` to take patches automatically. `:main` is whatever is on
-the default branch and is not a release — useful for trying something out, not for
-running.
-
-Exposing it works the same as any other container — a tunnel or reverse proxy points
-at the port. Either run the tunnel on the host against `127.0.0.1:3010`, or add
-cloudflared as a second service in Compose so it reaches DocDrop over the internal
-network and **nothing is published on the host at all**. `compose.yaml` has both
-variants commented in.
-
-Sign-in needs an OIDC provider: see [Access model](#access-model) for the variables
-to put in the container environment.
-
-### From source
+For standalone Docker, pass the same configuration explicitly:
 
 ```bash
-npm install
-npm run build:web            # builds the interface into internal/web/dist
-go build -o docdrop ./cmd/docdrop
-./docdrop                    # runs on http://127.0.0.1:3010
+docker run -d --name docdrop --env-file .env \
+  -p 127.0.0.1:3010:3010 -v docdrop-data:/data \
+  ghcr.io/ulzuhan/docdrop:3.0.0
 ```
 
-Node is needed to **build** the interface and to run the test suites. It is not
-needed to run the service, and it is not in the production image.
+Pin a verified image digest for production. `:latest` follows releases;
+`:main` follows development and is not a release. See
+[deployment and rollback](DEPLOYMENT.md) for proxy requirements, update procedure
+and the no-payload-backup policy.
 
-The port comes from `PORT`. For development, `npm run dev` still starts the Next
-version of the interface with hot reload; the Node runtime is kept for now as the
-rollback reference (`Dockerfile.node`) and will be retired once the deployment has
-been accepted.
+### Development and building
 
-### Reaching it from outside
-
-The service listens on **127.0.0.1 only**. To reach it from a phone or from outside
-the network, put a tunnel or a reverse proxy in front:
+Build prerequisites: **Go 1.27.1**, **Node 22+** and npm. Node only builds the
+frontend or runs test tooling; React executes in the user's browser.
 
 ```bash
-# Temporary public tunnel (Ctrl-C closes it)
-cloudflared tunnel --url http://127.0.0.1:3010
-
-# Private mesh, only your own devices
-tailscale serve --bg --https=8443 http://127.0.0.1:3010
+npm ci
+npm run dev
 ```
 
-Both give you HTTPS, which is required to install the PWA and to receive files from
-the phone's share sheet.
-
-### Keeping it running
-
-Started from a terminal, it dies when the terminal closes. A user service is
-usually enough:
-
-```ini
-# ~/.config/systemd/user/docdrop.service
-[Unit]
-Description=DocDrop
-[Service]
-WorkingDirectory=%h/path/to/docdrop
-ExecStart=%h/path/to/docdrop/docdrop
-Environment=PORT=3010
-Restart=on-failure
-[Install]
-WantedBy=default.target
-```
+This builds React and Go, then runs the binary on `http://127.0.0.1:13010` with
+an isolated local store in `.local/data`. It does not start Next or offer hot
+reload: rerun it after changes. Credentials are not invented for development.
+For an authenticated local session, export a trusted env file first:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now docdrop
-sudo loginctl enable-linger "$USER"   # survives without an open session
+cp .env.example .env
+# Fill in OIDC credentials and a callback matching the local origin.
+set -a
+source .env
+set +a
+npm run dev
 ```
 
-For a properly isolated deployment — dedicated user, sandboxed systemd unit — see
-[`deploy/`](deploy/README.md). It is optional.
+The dev launcher permits non-Secure cookies on loopback HTTP only. All normal
+starts use Secure cookies unless explicitly overridden. The binary does **not**
+load env files automatically.
 
----
+To build a distributable binary:
+
+```bash
+npm run build               # Vite assets, then go build with -trimpath
+HOSTNAME=127.0.0.1 ./docdrop # port 3010 by default
+```
+
+Copy that binary to a compatible host; there is no npm install or separate asset
+folder at runtime. For systemd installation with a dedicated user and sandbox,
+see [deploy/README.md](deploy/README.md).
+
+## Architecture
+
+```text
+cmd/docdrop/       process, healthcheck and bounded shutdown
+internal/auth/     OIDC/PKCE, signed sessions, revocations and guest links
+internal/httpapi/  HTTP routes, streaming transfers, HTML and security headers
+internal/store/    JSON metadata, blobs, quotas and download reservations
+internal/uploads/ resumable chunk state and synchronization
+internal/web/     embedded build output (not committed)
+src/screens/      dashboard, recipient and guest React screens
+src/components/   shared UI, account controls and upload queue
+src/lib/          browser encryption, resumable transport and presentation helpers
+src/styles/       theme, Tailwind and locally hosted fonts
+public/           PWA service worker, manifest resources and icons
+scripts/          isolated functional/browser tests and pinned rollback test
+```
+
+Go renders the HTML shell and supplies validated page data to React. Vite compiles
+hashed assets, copied into `go:embed`; navigation is ordinary links handled by Go.
+`next-themes` remains a React theme utility: it does not require a Next server.
+There is a single maintained implementation of each screen and of the backend.
 
 ## Access model
 
-**DocDrop needs an identity provider.** There is no password of its own and no open
-mode: uploading, and seeing what is stored, require an account, and who has an account
-is decided by an OIDC provider you point it at. Authentik is what this was built
-against, but nothing here is specific to it — Keycloak, Authelia, Zitadel or any other
-OIDC provider works the same.
+Accounts come from the configured OIDC provider. A signed-in user lists and deletes
+**only their own files**. Files uploaded through a guest link belong to the account
+that minted it; the guest can upload, but cannot enumerate the store or enter the
+panel. Legacy files without an owner are not listed to any account; their existing
+capability links still work until expiry.
 
-That is a deliberate trade and worth saying out loud: it means you cannot clone this
-and be uploading a minute later. It exists because DocDrop is one of five services
-sharing one set of accounts, and a login form in each of them would have meant getting
-password handling right five times.
+Download IDs are capabilities, not public directory entries. Anyone with a valid
+link can use it within its expiry/download limits. Do not log full capability URLs.
 
-| Route | Needs an account |
-|---|---|
-| `/`, `/api/upload*`, `/api/files*`, `/api/guest-links*`, `/api/cleanup` | Yes |
-| `/d/[id]`, `/api/info/[id]`, `/api/download/[id]`, `/api/zip` | No — the 72-bit id is the secret |
-| `/guest/[token]` and uploading through it | No — see below |
-
-Set these and restart:
-
-```bash
-DOCDROP_SESSION_SECRET=$(openssl rand -hex 32)   # signs the session cookie
-DOCDROP_OIDC_CLIENT_ID=...
-DOCDROP_OIDC_CLIENT_SECRET=...
-DOCDROP_OIDC_REDIRECT_URI=https://your-host/api/auth/callback
-DOCDROP_OIDC_ISSUER=https://your-provider/issuer   # every endpoint is discovered from here
-DOCDROP_OIDC_INTERNAL_BASE=http://127.0.0.1:9100   # where the server talks to it, if that differs
-```
-
-Without them the service starts and says so on boot — *sign-in NOT configured* — and
-nobody can get in. That is on purpose: a file service that silently accepts uploads
-from anyone who finds the URL is worse than one that refuses to start properly.
-
-The session is a signed cookie (HMAC-SHA256) with no server-side state, so there is no
-session table to grow or clean. Its default lifetime is 12 hours (configurable from 1 to
-24). The local user record is looked up on every request, but DocDrop does not introspect
-the provider on every request: removing an account there takes effect when the current
-cookie expires and the next sign-in is refused. Rotate DOCDROP_SESSION_SECRET for
-immediate global revocation.
-
-### Guest links, for people with no account
-
-Somebody who needs to send you a file should not have to get an account for it. A
-signed-in user creates a guest link with its own expiry and upload limit; whoever holds
-it can upload through `/guest/[token]` and nothing else — no listing, no other files,
-no way to reach the dashboard.
-
-It is how the "somebody outside sends me something" case is covered without loosening
-anything for everyone else.
-
----
-
-
-**Losing access takes effect immediately.** `POST /api/auth/backchannel-logout`
-implements OIDC Back-Channel Logout — point the provider at it in the client's
-*Logout URI*. The session here is a signed cookie with no server-side state, so
-there is nothing to delete: the notification records that person on a small
-revocation list (an opaque id and a date, pruned automatically), and their
-cookies stop working from that moment. Sessions also expire on their own after
-DOCDROP_SESSION_TTL_HOURS (12 by default, 24 maximum), which is the bound that
-holds even when no notification arrives — the provider only notifies clients
-whose access token is still alive.
+Sessions are HMAC-SHA256 cookies, Secure and HttpOnly with SameSite protection.
+The provider can revoke them through `POST /api/auth/backchannel-logout`, which
+persists revocations checked on subsequent requests. Without a notification,
+provider-side access removal is bounded by the cookie lifetime: 12 hours by
+default, configurable from 1 to 24. Rotating `DOCDROP_SESSION_SECRET` revokes all
+sessions. Configure the provider's logout callback; account removal alone is not
+an immediate revocation mechanism.
 
 ## End-to-end encryption
 
-Uploads are encrypted **in the browser** by default, before the first byte leaves
-it. What the server stores is ciphertext under the neutral name `encrypted`; the
-content, the real filename and the MIME type are inside the encrypted envelope. The
-key is 32 random bytes that travel in the **link's `#fragment`** — the part of a URL
-a browser never sends to any server — so knowing the link *is* holding the key, and
-the server operator cannot open what they host. This is the same deal SecretDrop
-offers for text, applied to files.
+Files encrypt **in the browser by default**, using AES-256-GCM in 4 MiB chunks.
+The content, real filename and MIME type are inside the authenticated envelope;
+the server stores ciphertext with the neutral name `encrypted`.
 
-It is a choice per upload, and the control says what each side costs. Off, the
-server can read the file — and in return it can preview it, zip it, and the link
-has no key to lose. On (the default), the recipient still sees the real name, type
-and size before downloading: `/api/info` hands out the encrypted header of the
-bulk, which only the key in the link can open.
+The key travels in the link's **#fragment**, which browsers do not send to the
+server. Keys are also kept in the uploading browser's local keyring. Losing both
+the complete link and that browser profile loses access: there is no recovery key.
+A guest must send the complete link back to the person requesting the upload.
 
-How it works, briefly:
+- Chunk ordering, truncation and extension are authenticated.
+- Downloads decrypt through a streaming service worker where supported. Browsers
+  without that path fall back to memory with a warning for very large files.
+- Unencrypted uploads remain an explicit option for server previews and ZIPs.
+  Encrypted files are excluded from server-side ZIP and preview paths.
+- Size, ownership, expiry and counters remain visible metadata.
 
-- **AES-256-GCM per 4 MiB chunk** via WebCrypto. Nonces are deterministic per chunk
-  index, which is what lets a resumed upload re-encrypt the same chunk into the
-  same bytes: the chunked transport, its checksums and its resume state never learn
-  that encryption exists. Chunk order, truncation and extension are all
-  authenticated — a tampered or cut bulk fails to decrypt rather than yielding a
-  plausible partial file.
-- **The keyring is local.** Keys live in the uploading browser's `localStorage`,
-  nowhere else. That is why your own dashboard shows real filenames (they come
-  from the keyring, not the server) and why another device shows the same files
-  without names. Losing the link and the browser profile loses the file: there is
-  no recovery, by design.
-- **Downloads stream through a service worker where that works** — Chromium on
-  desktop and Android. The page decrypts chunk by chunk and hands bytes to the
-  browser's native download, with backpressure — a multi-gigabyte file never sits
-  whole in memory. Safari, everything on iOS and browsers embedded in other apps
-  decrypt in memory instead and end with a **Save** button (the share sheet on
-  iOS), with a warning above 1.5 GiB. If the streaming path fails before the first
-  byte, the page falls back to memory on its own.
-- **A download counts once it has fully arrived.** The counter used to move when
-  the request came in, and the first real transfer to a phone showed the cost:
-  the download failed on the recipient's side and the file's only allowed
-  download was gone. A request in flight still holds its place against the limit,
-  so two people opening a one-download link at once still get one file between
-  them.
-- **Guest uploads encrypt too**, which has a human consequence: the key is born in
-  the *guest's* browser, so the finished upload shows a prominent screen telling
-  them to send the full link back to whoever asked for the file — that link holds
-  the only key. Skipping that step makes the file unrecoverable for everyone.
-- **What stays visible to the server**: approximate size, upload time, expiry,
-  download count, and who owns the file. Encrypted files are excluded from the
-  server-side ZIP (it would package unopenable ciphertext) and from server-side
-  previews; images, video and audio preview in the recipient's browser once
-  decrypted.
-- **Who uploaded it is the account, not a typed name.** The label a recipient sees
-  comes from the signed-in account, or from the label the account gave a guest
-  link. There is no field to type a name into, so nobody can sign as somebody
-  else.
+[`src/lib/e2ee.ts`](src/lib/e2ee.ts), its client helper and the resumable transport
+were kept intact through the backend cleanup. The server never receives the key.
 
-Files uploaded before this existed remain as they were stored; they are served
-untouched and age out through their own expiry.
+## Large files and transfer correctness
 
-## Large uploads
+The default limits are **10 GiB per file** and **20 GiB total**. Files and whole
+folders are queued two at a time; uploads use 32 MiB chunks, checksums and resume
+markers. Picking the same file after an interruption resumes its missing chunks.
+Half-finished uploads expire after 24 hours.
 
-This is where most of the work went, because a multi-gigabyte file hits three
-different walls, each with its own symptom.
+Transfers stream instead of buffering whole files. Each chunk writes directly to
+its final offset; duplicate writes of the same index are serialized, and completion,
+cancellation and cleanup cannot race a chunk into a published corrupted file.
 
-### Wall 1 — server memory
+A download counts only after a complete server-side transfer. In-flight requests
+reserve a slot so concurrent readers cannot exceed the limit. Interrupted transfers
+release their slot; previews do not consume one, and range continuations follow
+the existing download contract.
 
-The naive implementation reads the whole file into memory (`request.formData()` on
-the way in, `readFile()` on the way out). With a 10 GB limit advertised, the process
-dies long before getting there: Node's `Buffer` cap is around 2 GB.
+ZIP output streams without compression, supports ZIP64 and disambiguates duplicate
+names. Missing, expired or size-mismatched entries are skipped without consuming a
+download. A file truncated during transfer must not produce a falsely successful ZIP.
 
-Everything is streamed in both directions instead. Verified with a 3 GB file: it goes
-up and comes back byte-for-byte identical with server memory flat at ~160 MB. The Go
-server keeps the same shape — a shared 256 KiB buffer per transfer, positional writes
-for chunks and a streamed ZIP — because the container has 1 GiB and the per-file
-limit is 10 GB.
-
-### Wall 2 — Node's 5-minute request timeout
-
-Node aborts with **408** any request lasting longer than `server.requestTimeout`,
-whose default is **300,000 ms (5 minutes)**. An upload is *one single* HTTP request,
-so a large file is cut off mid-transfer: at ~19 MB/s the limit lands around 5.6 GB,
-meaning a 7 GB video dies just past 80% with no clear error.
-
-Reproduced with an upload rate-limited to 512 KB/s:
-
-```
-before:  http=408  time=306.06s  uploaded=160,563,200 of 200,000,000  (76%)
-after:   http=200  time=380.79s  uploaded=200,000,000                 (100%)
-```
-
-Next only exposed `keepAliveTimeout`, not `requestTimeout`, and its documentation
-rules out combining `output: standalone` with a custom server, so `scripts/start.js`
-had to intercept the creation of the HTTP server to raise the per-request limit to
-12h. The Go server sets it directly (`DOCDROP_REQUEST_TIMEOUT_MS`, 12h by default),
-and deliberately sets **no global write timeout**: one would cut long downloads in
-half. The header timeout stays at 60s — that is the one protecting against clients
-dribbling headers out — and the body cannot grow unbounded because `/api/upload`
-cuts it off at the size it reserved.
-
-### Wall 3 — the proxy's per-request cap
-
-Measured against a Cloudflare quick tunnel:
-
-| Size in a single request | Result |
-|---|---|
-| 500 MiB (524,288,000 B) | HTTP 200 |
-| 511.99 MiB | HTTP 413 |
-| 512 MiB and above | HTTP 413 **in 0.55s** |
-
-The rejection is immediate: Cloudflare cuts it off after reading `Content-Length`,
-without transferring anything. (Cloudflare's docs quote 100 MB for the free plan; the
-limit actually measured on quick tunnels is 500 MiB.) **Downloads have no such cap**:
-600 MB came back through the same tunnel at 30 MB/s.
-
-### The fix: chunked uploads
-
-The browser no longer sends one giant request. It splits the file into 32 MiB chunks
-and sends each one separately. Every chunk is written **straight into its position**
-inside the final file, so there is no assembly phase and no duplicated disk space.
-Which chunks arrived is tracked with empty marker files, atomic and lock-free.
-
-```
-POST   /api/upload/init             opens the upload → { uploadId, chunkSize, totalParts }
-PUT    /api/upload/[id]/part/[n]    sends one chunk (idempotent)
-GET    /api/upload/[id]             which chunks are missing
-POST   /api/upload/[id]/complete    closes it and publishes the file
-DELETE /api/upload/[id]             cancels
-```
-
-While an upload is in flight the on-disk entry looks like this:
-
-```
-<id>/file          final file, pre-allocated at its definitive size
-<id>/session.json  upload metadata
-<id>/parts/<n>     marker for "chunk n is written"
-```
-
-On completion `<id>/meta.json` appears and `session.json` and `parts/` go away, so it
-becomes a regular file for the rest of the app.
-
-**Resuming.** The browser remembers the upload id under a fingerprint of the file
-(name + size + last modified). If the upload is interrupted — screen locked, wifi
-switched to mobile data, tab closed — picking the same file again asks which chunks
-are missing and **carries on where it left off**. Half-finished uploads stay
-resumable for 24h, then the sweep clears them.
-
-Verified with the same file through the same tunnel:
-
-```
-600 MB in one request  ->  HTTP 413
-600 MB in 18 chunks    ->  completed in 46s, no failures
-download back          ->  identical SHA-256
-```
-
----
-
-## Uploading several at once
-
-Drop several files, pick them from the file dialog, or drag a whole folder (walked
-recursively). The queue uploads **two at a time**: firing them all at once splits the
-bandwidth across many connections and nothing finishes, which with multi-GB videos is
-the worst outcome.
-
-While anything is uploading a **Wake Lock** is held so the phone screen does not turn
-off. Without it the system suspends the upload on lock: progress is not lost, but the
-user has to come back and pick the file again.
-
-## Downloading several as a ZIP
-
-Select files in the listing and grab them in one go. The archive is generated **by
-streaming and without compression** ("store"): video and photos are already
-compressed, so deflate would only burn CPU. It streams at disk speed and uses no
-temporary space on the server.
-
-- **ZIP64 when needed.** A 7 GB video does not fit in the 32-bit fields of the classic
-  format; without it the archive would be corrupt in exactly the case this exists for.
-  Verified with a 4.5 GB file: `unzip -t` validates it, the content comes out intact,
-  and the format overhead is 250 bytes.
-- **Data descriptors**, so each file is not read twice nor buffered just to compute
-  its CRC up front.
-- Duplicate names get renamed inside the archive (`photo.jpg`, `photo (2).jpg`).
-- Each included file counts as one of its own downloads. Files that are no longer
-  available are skipped rather than failing the whole archive.
-
-```
-GET /api/zip?ids=a,b,c&name=trip
-```
-
-## Integrity
-
-The browser sends each chunk's SHA-256 in `X-Chunk-Sha256` and the server verifies it
-before accepting the chunk; on mismatch it answers 422 and does **not** mark it as
-received, so the client re-sends it. Without this, with automatic retries in play, a
-corrupted chunk would slip through unnoticed because the size still added up.
-
-The header is optional: `crypto.subtle` only exists in secure contexts (HTTPS or
-localhost), so over plain HTTP on a local IP uploads still work, just unverified.
+The hourly sweep removes expired payloads and abandoned uploads. Exhausted files
+leave a seven-day tombstone so a link can explain why it no longer works.
 
 ## PWA
 
-Installable on a phone's home screen. The manifest declares `share_target`, so
-DocDrop shows up in the **share sheet**: pick a video in the gallery, share it to
-DocDrop, done — no browser, no hunting for the file. The service worker receives that
-POST, stores the file briefly and redirects to the page, which uploads it.
-
-The service worker **deliberately does not cache the app**: for a self-hosted service,
-serving a stale version causes more problems than it solves.
-
-Icons are generated with `node scripts/generate-icons.mjs`, which rasterises them and
-writes the PNG using only `zlib` — no ImageMagick, no Pillow. The PNGs are committed;
-re-run it only if the design changes.
-
-HTTPS is required: through a tunnel it works, over plain HTTP on a local IP the
-browser will not allow installing or sharing.
-
-## Tests
-
-```bash
-npm run build:web && go build -o docdrop ./cmd/docdrop
-go test -race ./cmd/... ./internal/...            # server unit tests
-npx vitest run                                    # the crypto module
-
-DOCDROP_TEST_LAUNCH=./docdrop DOCDROP_TEST_BUILD_STAMP=./docdrop \
-  ./scripts/run-suites.sh                         # the HTTP suites
-DOCDROP_TEST_LAUNCH=./docdrop npm run test:navegador
-scripts/test-compatibilidad.sh                    # published Node -> Go -> Node
-```
-
-**The same suites run against both implementations.** Without
-`DOCDROP_TEST_LAUNCH` they run against the Node artefact, which is still the
-rollback reference; with it, against the binary or against the image
-(`scripts/lanzar-imagen.sh`). Not one assertion changes: if a suite passes on one
-and fails on the other, the difference is real. Today they produce identical
-output.
-
-On top of the API suites: 39 browser checks with Playwright — including the
-byte-for-byte integrity of a file decrypted through the streaming path, the one
-that makes multi-gigabyte encrypted downloads possible — 55 compatibility checks taken in
-turns against the exact rollback digest, and the Go unit tests over ranges,
-download slots, quota, chunked uploads and shutdown.
-
-Each suite gets a server the script starts itself, with **its own data
-directory** — never the real one. That directory is exported rather than merely handed to the server, and the
-difference is not cosmetic: while it was not, the suites seeded their user records
-into the production store while the server looked in the temporary one. Two test
-accounts ended up mixed in with real ones, and the suites failed because each side
-was looking somewhere else.
-
-`test-upload` — 18 checks over the upload protocol: chunking, resuming, idempotency,
-checksums, invalid indexes and limits.
-
-`test-acceso` — 61 checks covering who can do what and cross-origin simple POSTs. The
-three kinds of visitor are not the same door: an account sees **its own files** and can
-delete only those, a guest link uploads and nothing else, and anybody with a link can
-download.
-
-This used to read "an account sees the whole listing and can delete anything
-(deliberate — this is a shared household drop box)", and that sentence is worth keeping
-as a warning. The premise held while every account belonged to the same household; the
-first real second user broke it — the operator found the other person's file sitting in
-his own dashboard, download link and delete button included. Being let in and sharing a
-room are different things. Files have an `owner` now (`user:<id>`); a file uploaded
-through a guest link belongs to whoever minted the link; guest links themselves are
-listed and revocable only by their creator. Files and links from before ownership are
-shown to nobody — their direct links still work, and expiry retires them on its own.
-
-And a fourth thing, which is what was missing: **having access to upload is not the
-same as owning a particular upload**. With two guest links — one per person, the
-normal case — the second used to write chunk 0 of the file the first was uploading,
-read its document name, complete it and cancel it. The worst part is not the
-nuisance: it is that the file that arrives is not the one that was sent.
-
-`test-ficheros` — checks over the life of a file, including concurrent quota reservation: download by link, the download cap that makes
-auto-destruct real, identifiers coming from the URL, and request bodies that do not
-parse. It also rejects malformed Range requests before they can grant free
-continuations. CI runs all four HTTP suites through `scripts/run-suites.sh`, each
-against its own temporary store.
-
-`test-e2ee` — checks that the encryption's promise holds **on the server's own
-disk**: a marker string is uploaded encrypted and the whole data directory is then
-searched for it and for the real filename (both must be absent), the public info
-endpoint must show only the neutral name, the download must decrypt back to the
-exact bytes, and a wrong key must open nothing. The suite imports the real
-`src/lib/e2ee.ts` (via `--experimental-strip-types`), not a copy — the unit tests
-cover the format's edge cases, this one covers the claim. A cancelled download
-must leave its quota available, and a successful Range retry must consume it.
-
-Download accounting settles before the response stream closes. Invalid ranges,
-missing blobs and cancelled responses do not establish free continuations. Only
-a successfully accounted response enables subsequent Range continuations for
-that client while the file remains available; exhausted files are still removed.
-
----
-
-## API
-
-| Method and route | Purpose |
-|---|---|
-| `POST /api/upload` | Single-request upload (small files) |
-| `POST /api/upload/init` | Opens a chunked upload |
-| `PUT /api/upload/[id]/part/[n]` | Sends one chunk |
-| `GET /api/upload/[id]` | Status, used to resume |
-| `POST /api/upload/[id]/complete` | Closes the upload |
-| `DELETE /api/upload/[id]` | Cancels a half-finished upload |
-| `GET /api/files` | Active files + storage usage |
-| `DELETE /api/files/[id]` | Deletes a file |
-| `GET /api/info/[id]` | File metadata · **public** |
-| `GET /api/download/[id]` | Download, supports `Range` · **public** |
-| `GET /api/download/[id]?inline=1` | Preview without consuming a download · **public** |
-| `GET /api/zip?ids=a,b,c` | Several files as one archive · **public** |
-| `POST /api/cleanup` | Purges expired, exhausted and abandoned uploads |
-| `GET /api/auth/login` · `GET /api/auth/callback` · `POST /api/auth/logout` | Sign-in through the OIDC provider |
-| `POST /api/guest-links` · `GET /api/guest/[token]` | Guest links: create one (needs an account), use one (does not) |
+The service worker supports mobile sharing and streaming decrypted downloads; it
+deliberately does not cache an old application shell. HTTPS is required outside
+localhost for these browser APIs. Icons and fonts are self-hosted; regenerate icons
+only when the design changes with `node scripts/generate-icons.mjs`.
 
 ## Configuration
 
@@ -519,8 +202,8 @@ working defaults.
 |---|---|---|
 | `PORT` | 3010 | Listening port |
 | `DOCDROP_DATA_DIR` | `.docdrop-uploads` | Where files live |
-| `DOCDROP_MAX_FILE_BYTES` | 10 GB | Maximum size per file |
-| `DOCDROP_MAX_TOTAL_BYTES` | 20 GB | Total storage; keeps the disk from filling |
+| `DOCDROP_MAX_FILE_BYTES` | 10 GiB | Maximum size per file |
+| `DOCDROP_MAX_TOTAL_BYTES` | 20 GiB | Total storage; keeps the disk from filling |
 | `DOCDROP_CHUNK_BYTES` | 32 MiB | Chunk size |
 | `DOCDROP_REQUEST_TIMEOUT_MS` | 12h | Maximum duration of a request |
 | `DOCDROP_SESSION_SECRET` | — | Signs the session cookie. **Required** to sign in |
@@ -531,99 +214,63 @@ working defaults.
 | `DOCDROP_OIDC_ISSUER` | — | **Required.** The provider's issuer URL. Every endpoint (authorize, token, userinfo, end-session, JWKS) is read from its `/.well-known/openid-configuration`, so no provider-specific paths are baked in |
 | `DOCDROP_OIDC_INTERNAL_BASE` | issuer origin | Where the server talks to the provider, if that differs from the public origin |
 | `DOCDROP_OIDC_TIMEOUT_MS` | 10000 | Timeout for token and userinfo calls |
-| `DOCDROP_PUBLIC_HOST` | unset | Public hostname the origin check compares against. Unset, the incoming `Host` is used, which is right behind a tunnel that preserves it — verified. Only needed behind a proxy that rewrites `Host` with an internal name. |
+| `DOCDROP_PUBLIC_HOST` | unset | Public hostname the origin check compares against. Unset, the incoming `Host` is used, for a proxy that preserves it. Only needed behind a proxy that rewrites `Host` with an internal name. |
 | `DOCDROP_ENROLL_URL` | unset | Where the landing's "Request an account" button sends people — your provider's self-service enrollment flow, if it has one. Unset, the button is not rendered and the landing only offers sign-in. |
-| `DOCDROP_ACCOUNT_URL` | The provider's own account page — email, password, second factor, sessions. None of that belongs to this app, and without it the account menu simply does not link anywhere. Authentik serves it at `/if/user/`. |
+| `DOCDROP_ACCOUNT_URL` | unset | The provider's own account page — email, password, second factor, sessions. None of that belongs to this app, and without it the account menu simply does not link anywhere. Authentik serves it at `/if/user/`. |
+| `DOCDROP_INSECURE_COOKIES` | unset | Set to `1` only for local HTTP development; cookies are Secure otherwise. |
+| `DOCDROP_SHUTDOWN_MS` | 8000 | Total shutdown budget; keep below the container or service stop timeout. |
 
-## Security
-The complete Internet-facing threat model, findings, deployment requirements and verification evidence are in [the security and infrastructure audit](docs/SECURITY-AUDIT.md).
+## Validation
 
-Written on the assumption that it may be exposed to the internet through a tunnel
-that provides no WAF and no filtering of its own.
+```bash
+npm ci
+npm run lint && npm run typecheck
+npm test                       # build, crypto, Go -race, HTTP and back-channel
+go vet ./cmd/... ./internal/...
+npx playwright install chromium
+npm run test:navegador          # real browser + synthetic OIDC over HTTPS
+npm run test:compatibilidad     # Docker: pinned Node 2.3.1 -> Go -> same Node
+```
 
-- **Total storage quota**, reserved under one process-wide lock for both chunked and
-  direct uploads, so concurrent requests cannot collectively overfill the store.
-- **Per-IP rate limiting**: 30 upload starts/hour, 240 downloads/min and tighter
-  limits on guest-token probes and ZIP generation. The IP comes from the **last** value of `X-Forwarded-For`, which the
-  proxy overwrites. `X-Real-Ip` is deliberately not used: Tailscale was verified to
-  pass it through untouched, so a client could invent one per request and dodge the
-  limit.
-- **Ids are validated** before touching the filesystem: without that, an id like
-  `../../etc` escapes the data directory.
-- **CSRF boundary**: JSON mutations require application/json; the simple raw upload,
-  cleanup and logout POSTs additionally validate Fetch Metadata and Origin.
-- **Headers**: nonce-based CSP, host-only HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
-  `nosniff`, and no `X-Powered-By`.
-- **Uploads are only served inline for types that cannot run scripts** (video, audio,
-  images except SVG, PDF). Anything else is forced to `attachment`. Serving arbitrary
-  uploads inline from the same origin is what turns a file service into stored XSS.
-- **End-to-end encryption**: content, filename and MIME type are encrypted in the
-  browser (AES-256-GCM, key in the URL fragment); the server stores ciphertext it
-  cannot open. See the section above for the format and its verified properties.
-- **No password is stored here at all**: who may sign in is the identity provider's
-  business. The session is an HMAC-SHA256 signed cookie using at least 32 bytes of secret,
-  `httpOnly` + `secure` + `sameSite`. Provider-side revocation is bounded by the
-  12-hour default cookie lifetime; see Access model.
+For the final image, not just the local binary:
 
-## Maintenance
+```bash
+docker build -t docdrop-go:ci .
+DOCDROP_TEST_LAUNCH=scripts/lanzar-imagen.sh \
+  DOCDROP_TEST_BUILD_STAMP=Dockerfile npm run test:http
+DOCDROP_TEST_LAUNCH=scripts/lanzar-imagen.sh \
+  DOCDROP_RED_HOST=1 npm run test:navegador
+```
 
-The server **sweeps the store every hour** on its own (`barrer` in
-`cmd/docdrop/main.go`; `instrumentation-node.ts` in the Node version):
-expired files, exhausted ones and abandoned uploads. Without it an expired file was
-only deleted when someone tried to open it, so it kept eating into the quota forever.
+CI retains frontend checks, Go race tests, **156 HTTP checks**, back-channel logout,
+**39 browser checks against the binary and final image**, and **55 rollback
+compatibility checks**. Stores and identities are synthetic and isolated; never
+point these suites at production. They are functional tests, not a load campaign.
+The browser journey checks login, owner and guest uploads, actual decryption,
+byte-for-byte downloads, deletion, logout, styles and PWA resources.
 
-The `POST /api/cleanup` route can force the same sweep from an authenticated
-same-origin client; anonymous curl requests are deliberately refused.
+## Security and maintenance
 
-When a file runs out of downloads its content is deleted but a tombstone is kept for
-7 days, so the link can answer "max downloads reached" instead of an ambiguous 404.
+Run **one process per store** behind a trusted TLS proxy. Quota, rate limits and
+in-flight reservations are process-local. The proxy must replace forwarded IP
+headers and preserve the public Host (or configure `DOCDROP_PUBLIC_HOST`).
+Do not expose the application port directly to untrusted clients.
 
----
+Data retention is part of the product: **do not back up payloads beyond their
+promised lifetime**. Rolling back means restarting the old verified image over the
+**current** store, never restoring expired files or spent download counters.
 
-## Dependencies
+The active branch contains no legacy backend. Historical source remains in Git;
+the published 2.3.1 image remains the pinned compatibility/rollback reference.
+Node/npm, Playwright and browsers belong to build/test environments only.
 
-`npm audit` reports **0 vulnerabilities**. Two things were needed to get there and are
-worth knowing if the report ever looks alarming again:
-
-- **`npm audit` over-reports Next.** It merges the ranges of every advisory, including
-  the ones that only affect `canary`/`preview` branches, so a version that is already
-  patched still shows up as affected. Checking the advisories one by one
-  (`gh api /advisories/GHSA-...`) showed all nine were fixed in 16.2.11 — the version
-  here is newer. **Never run `npm audit fix --force` on this**: its "fix" is to
-  downgrade Next to 9.3.3, a release from 2020.
-- **`overrides`** pin `sharp` and `postcss` to patched versions inside Next's own
-  dependency tree, where the real (not over-reported) advisories were.
-
-## Implementation notes
-
-Things that were hard to find and are worth not breaking again:
-
-- **One source of truth.** There used to be two in-memory caches (one module-scoped
-  in `/api/upload`, another on `globalThis` in `/api/download`) that drifted apart
-  from each other and from disk, so the listing showed stale download counters. Disk
-  decides, full stop.
-- **The download counter is serialised per id.** Without it, simultaneous downloads
-  read the same value and slipped past the limit.
-- **The sweep respects uploads in flight.** It used to delete any directory without a
-  `meta.json` older than an hour, which would have killed a multi-GB upload mid-way.
-- **`Content-Length` comes from the real file**, not from the stored metadata.
-- **`Content-Disposition` uses `filename*`** (RFC 5987) or non-ASCII names arrive
-  mangled.
-- **`serverExternalPackages` is not for native modules.** It listed `fs`, `path` and
-  `crypto` "to allow large uploads"; it did absolutely nothing.
-- **`Date.now()` is never read during render.** It is impure and it also left the
-  expiry countdowns frozen at whatever value they had when the page opened.
-- **The build tracer copies uploaded files into the standalone output.** It cannot
-  resolve the data directory statically (env var or `process.cwd()`), so it traces the
-  whole project — putting user content inside the deployment artifact and inflating it
-  from 34 MB to 200+ MB. Neither `outputFileTracingExcludes` (ignored by the Turbopack
-  tracer) nor a `turbopackIgnore` comment prevents it, so the postbuild step removes
-  it explicitly. If the data directory is ever renamed, keep that step in sync.
-
-This project targets a Next version whose conventions differ from older docs
-(`middleware.ts` → `proxy.ts`, `RouteContext<'/route'>`, route handlers uncached by
-default). See `AGENTS.md`: check `node_modules/next/dist/docs/` before assuming an
-API behaves the way you remember.
+- [Deployment and rollback](DEPLOYMENT.md)
+- [HTTP and data contracts](CONTRATOS.md)
+- [Repository cleanup and validation record](docs/CLEANUP-2026-09-08.md)
+- [Original migration plan](docs/PLAN-MIGRACION-GO.md)
+- [Historical security audit](docs/SECURITY-AUDIT.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

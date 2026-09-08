@@ -1,21 +1,27 @@
-# Never send uploaded files to the build context: they are user data, they are huge,
-# and they would slow every build down.
+# Never include credentials, uploaded files or development stores.
+.env*
+*.pem
 .docdrop-uploads
 data
+.local
 
+# Dependencies and assets are built inside the image.
 node_modules
+internal/web/dist
+docdrop
 .next
+out
+build
+*.tsbuildinfo
+
+# Repository-only material and test output.
 .git
 .github
-
-*.log
-.env
-.env.local
-.env*.local
-
 deploy
-README.md
-
-# La interfaz construida en el host no decide lo que se embebe: la imagen la
-# construye ella misma en su primera etapa.
-internal/web/dist
+docs
+assets
+*.md
+coverage
+test-results
+playwright-report
+*.log

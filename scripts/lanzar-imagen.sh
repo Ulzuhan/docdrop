@@ -37,14 +37,11 @@ USUARIO="${DOCDROP_UID:-$(id -u):$(id -g)}"
 UID_SOLO="${USUARIO%%:*}"
 GID_SOLO="${USUARIO##*:}"
 
-# Una tirada anterior interrumpida puede haber dejado el contenedor en pie, y
-# entonces el puerto sigue ocupado y la siguiente tirada mide el de antes o no
-# arranca. Se retira por etiqueta, que es lo que los distingue de los de verdad.
-docker ps -aq --filter "label=io.kaicorp.docdrop.prueba=1" | xargs -r docker rm -f >/dev/null 2>&1
-
+# No se retiran contenedores de otras tiradas: la limpieza tiene dueño.
 argumentos=(
   run --rm --name "$NOMBRE"
   --label io.kaicorp.docdrop.prueba=1
+  --label "io.kaicorp.docdrop.run=${DOCDROP_TEST_RUN_ID:-$NOMBRE}"
   --user "$USUARIO"
   -v "$DATOS:/data"
   --read-only

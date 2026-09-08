@@ -27,7 +27,7 @@ Environment=DOCDROP_DATA_DIR=/var/lib/docdrop
 # Un solo binario: la interfaz va embebida y no hay Node que arrancar. El plazo
 # largo por petición —lo que permite que una subida de gigas sea UNA petición de
 # horas— lo pone el propio binario; se ajusta con DOCDROP_REQUEST_TIMEOUT_MS.
-ExecStart=/usr/local/bin/docdrop
+ExecStart=/opt/docdrop/docdrop
 Restart=on-failure
 RestartSec=5s
 

@@ -1,8 +1,4 @@
-/**
- * Guest-link values needed on the client. They live apart from lib/guest.ts
- * because that module touches fs and next/headers, which a client bundle cannot
- * import.
- */
+/** Browser-facing guest-link types. The server implementation lives in Go. */
 
 /**
  * TTL of files uploaded through the guest page. Fixed rather than user-picked:
