@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Las sesiones, encima de identidades que viven en Authentik.
+// Las sesiones, encima de identidades que viven en el proveedor OIDC.
 //
 // La sesión es una cookie firmada (HMAC-SHA256) sin estado en el servidor, pero
 // nombra a un usuario. Cambiar DOCDROP_SESSION_SECRET sigue revocándolas todas
@@ -143,7 +143,7 @@ func (s *Sesiones) Cookie(valor string) *http.Cookie {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.seguras,
-		// "strict" no sobreviviría a la vuelta desde Authentik: el navegador la
+		// "strict" no sobreviviría a la vuelta desde el proveedor: el navegador la
 		// trata como navegación entre sitios y no mandaría la cookie.
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(s.ttl.Seconds()),

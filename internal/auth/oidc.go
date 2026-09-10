@@ -338,7 +338,7 @@ func SafeNext(crudo string) string {
 // `javascript:` sería un enlace ejecutable.
 //
 // A diferencia de urlValida, NO recorta la barra final: la página de cuenta de
-// Authentik es `/if/user/` y quitársela cambia la dirección.
+// algunos proveedores acaba en barra y quitársela cambia la dirección.
 func URLPublicaValida(crudo string) string {
 	crudo = strings.TrimSpace(crudo)
 	if crudo == "" {

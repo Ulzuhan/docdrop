@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 3.0.1 — 2026-09-10
 
+- The start-up line no longer names a specific identity provider: it says
+  `sign-in: OIDC — accounts live in the identity provider, not here`. The code
+  never depended on one; the comments that said otherwise now say "the provider".
 - Retire the legacy Next/Node backend, Dockerfile and startup scripts from the
   active branch. Keep the published Node 2.3.1 rollback compatibility test.
 - Consolidate React screens, styles and local fonts under src/; keep encryption

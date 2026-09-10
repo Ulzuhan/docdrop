@@ -136,7 +136,7 @@ func piezas() (*store.Store, *httpapi.Server, error) {
 	// servicio abierto: un endpoint de subida al alcance de cualquiera es
 	// alojamiento anónimo gratis.
 	if sesiones.Configurado() && oidc != nil {
-		log.Println("[docdrop] sign-in: Authentik (OIDC) — accounts live there, not here")
+		log.Println("[docdrop] sign-in: OIDC — accounts live in the identity provider, not here")
 	} else {
 		log.Println("[docdrop] sign-in NOT configured: set DOCDROP_SESSION_SECRET and the " +
 			"DOCDROP_OIDC_* variables, or nobody will be able to get in")

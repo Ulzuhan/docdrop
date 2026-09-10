@@ -14,7 +14,7 @@ import (
 
 // Las personas que pueden usar esta instancia.
 //
-// Las cuentas viven en Authentik; lo que se guarda aquí es un espejo de la
+// Las cuentas viven en el proveedor OIDC; lo que se guarda aquí es un espejo de la
 // identidad, para que un fichero pueda decir quién lo subió y una sesión pueda
 // apuntar a alguien. Aquí no hay contraseñas y no hay alta: las dos son del
 // proveedor, que sólo emite tokens para quien esté en el grupo de esta
