@@ -38,9 +38,8 @@ ENV HOSTNAME=0.0.0.0 PORT=3010 DOCDROP_DATA_DIR=/data
 # fichero de entorno, y las CA hacen falta para hablar con el proveedor por
 # HTTPS.
 #
-# uid 1001, EL MISMO que la imagen de Node —y distinto del 10001 de las otras
-# servicios—: los ficheros de /srv/kaicorp/docdrop son suyos, y cambiarlo dejaría
-# el almacén ilegible para el servicio.
+# uid 1001, EL MISMO que llevaba la imagen de Node: los ficheros del volumen de
+# datos son suyos, y cambiarlo dejaría el almacén ilegible para el servicio.
 RUN apk -U upgrade --no-cache \
  && apk add --no-cache ca-certificates \
  && addgroup -S -g 1001 docdrop && adduser -S -u 1001 -G docdrop docdrop \

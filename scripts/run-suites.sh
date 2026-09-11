@@ -4,7 +4,7 @@
 #
 # El servidor se arranca con un secreto de sesión propio, y no con el de
 # producción: las suites acuñan sus cookies con ese mismo secreto porque esta
-# aplicación no tiene login local —la identidad la lleva Authentik entera—, y sin
+# aplicación no tiene login local —la identidad la lleva entera el proveedor OIDC—, y sin
 # eso no habría forma de ejercitar una sola ruta.
 #
 #   ./scripts/run-suites.sh          # todas
