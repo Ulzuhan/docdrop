@@ -19,11 +19,11 @@ import { join } from "node:path";
 const BASE = process.env.BASE || `http://127.0.0.1:${process.env.PORT || 3010}`;
 
 /**
- * Subir exige sesión desde que la identidad se mudó al proveedor OIDC, así que la
- * suite necesita una. No se abre ninguna puerta para las pruebas: se hacen las
- * dos cosas que hace la aplicación al entrar alguien — escribir su ficha de
+ * Subir exige sesión desde que la identidad se mudó al proveedor OIDC, así que
+ * la suite necesita una. No se abre ninguna puerta para las pruebas: se hacen
+ * las dos cosas que hace la aplicación al entrar alguien — escribir su ficha de
  * usuario y firmarle la cookie— con el mismo formato y el mismo secreto
- * (`src/lib/auth.ts` y `src/lib/users.ts`).
+ * (`internal/auth/cuentas.go` y `internal/auth/sesiones.go`).
  *
  * Sin `DOCDROP_SESSION_SECRET` no se puede firmar nada, y la suite lo dice en
  * vez de estrellarse contra un 401 sin explicación.
@@ -98,9 +98,9 @@ async function main() {
   console.log(`Testing against ${BASE}\n`);
 
   // Se sondea la portada y no `/api/files`: ese listado enumera TODOS los
-  // enlaces activos, así que desde que la identidad vive en el proveedor exige
-  // sesión y devuelve 401. El sondeo daba entonces "no hay servidor" con el
-  // servidor perfectamente levantado. Las rutas que esta suite ejercita
+  // enlaces activos, así que desde que la identidad vive en el proveedor OIDC
+  // exige sesión y devuelve 401. El sondeo daba entonces "no hay servidor" con
+  // el servidor perfectamente levantado. Las rutas que esta suite ejercita
   // (`/api/upload/*`) siguen sin pedir sesión, que es lo que se está probando.
   const health = await fetch(`${BASE}/`).catch(() => null);
   if (!health?.ok) {

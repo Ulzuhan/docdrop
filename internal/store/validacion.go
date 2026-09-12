@@ -7,11 +7,12 @@ import (
 	"unicode/utf16"
 )
 
-// Este fichero reproduce la validación de `src/lib/store.ts` con las mismas
-// esquinas que tiene en JavaScript. No es purismo: las suites existentes y la
-// prueba de compatibilidad comprueban estos valores, y un `Number()` que se
-// comporte «razonablemente» en vez de igual cambia el TTL de los ficheros que
-// ya se están subiendo cuando se despliegue.
+// Este fichero reproduce la validación del backend Node retirado (`git show
+// v2.3.1:src/lib/store.ts`) con las mismas esquinas que tiene en JavaScript.
+// No es purismo: las suites existentes y la prueba de compatibilidad comprueban
+// estos valores, y un `Number()` que se comporte «razonablemente» en vez de
+// igual cambia el TTL de los ficheros que ya se están subiendo cuando se
+// despliegue.
 
 // Indefinido es el centinela de «campo ausente». Hace falta porque `nil` ya
 // significa `null`, y JavaScript los trata distinto: `Number(null)` es 0 y
@@ -129,7 +130,7 @@ const espaciosJS = " \t\n\v\f\r" +
 // RecortarJS es `String.prototype.trim`.
 func RecortarJS(s string) string { return strings.Trim(s, espaciosJS) }
 
-// Límites del almacén, iguales que en `src/lib/store.ts`.
+// Límites del almacén, iguales que en `v2.3.1:src/lib/store.ts`.
 const (
 	MinTTLHoras      = 1
 	MaxTTLHoras      = 24 * 30 // 30 días

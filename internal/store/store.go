@@ -14,7 +14,7 @@ import (
 )
 
 // Config es lo que decide el tamaño del almacén. Los valores por defecto son
-// los de `src/lib/store.ts`.
+// los del backend Node retirado: `git show v2.3.1:src/lib/store.ts`.
 type Config struct {
 	Dir      string
 	MaxFile  int64
