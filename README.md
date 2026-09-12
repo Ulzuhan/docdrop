@@ -12,7 +12,7 @@ runs out of downloads.
 The problem it was built for: passing a 7 GB GoPro video between phones and laptops
 **without a messaging app recompressing it**.
 
-- **Go** on the server · React 19 · Tailwind v4 · shadcn/ui, built with Vite
+- **Go** on the server · React 19 with a hand-written CSS design system, built with Vite
 - One binary: the interface is embedded, and the production image has no Node
 - No database: files and their metadata live on disk
 - Installable PWA, with support for the mobile "Share" menu
@@ -22,11 +22,11 @@ The problem it was built for: passing a 7 GB GoPro video between phones and lapt
 - Preview video, audio and images before downloading
 - Download several files at once as a streamed ZIP
 
-![Dashboard: drop zone with per-upload authorship, download limit and expiry, and the active files with their remaining life](assets/dashboard.png)
+![Dashboard: the drop zone, the settings for new uploads, a multi-GB upload in flight with its speed and time left, and the active files with their remaining life](assets/dashboard.png)
 
 <p align="center">
   <img src="assets/mobile.png" alt="The dashboard on a phone: single column, touch-sized controls" width="49%">
-  <img src="assets/download.png" alt="What the recipient of a link sees: preview, remaining downloads and expiry" width="49%">
+  <img src="assets/download.png" alt="What the recipient of a link sees: the file, its expiry and download limit, and the download button" width="49%">
 </p>
 
 ## Quick start
@@ -113,7 +113,7 @@ internal/web/     embedded build output (not committed)
 src/screens/      dashboard, recipient and guest React screens
 src/components/   shared UI, account controls and upload queue
 src/lib/          browser encryption, resumable transport and presentation helpers
-src/styles/       theme, Tailwind and locally hosted fonts
+src/styles/       design tokens, hand-written CSS and locally hosted fonts
 public/           PWA service worker, manifest resources and icons
 scripts/          isolated functional/browser tests and pinned rollback test
 ```
@@ -216,7 +216,7 @@ working defaults.
 | `DOCDROP_OIDC_TIMEOUT_MS` | 10000 | Timeout for token and userinfo calls |
 | `DOCDROP_PUBLIC_HOST` | unset | Public hostname the origin check compares against. Unset, the incoming `Host` is used, for a proxy that preserves it. Only needed behind a proxy that rewrites `Host` with an internal name. |
 | `DOCDROP_ENROLL_URL` | unset | Where the landing's "Request an account" button sends people — your provider's self-service enrollment flow, if it has one. Unset, the button is not rendered and the landing only offers sign-in. |
-| `DOCDROP_ACCOUNT_URL` | unset | The provider's own account page — email, password, second factor, sessions. None of that belongs to this app, and without it the account menu simply does not link anywhere. Authentik serves it at `/if/user/`. |
+| `DOCDROP_ACCOUNT_URL` | unset | The provider's own account page — email, password, second factor, sessions. None of that belongs to this app, and without it the account menu simply does not link anywhere. The path is the provider's own; copy it from there. |
 | `DOCDROP_INSECURE_COOKIES` | unset | Set to `1` only for local HTTP development; cookies are Secure otherwise. |
 | `DOCDROP_SHUTDOWN_MS` | 8000 | Total shutdown budget; keep below the container or service stop timeout. |
 

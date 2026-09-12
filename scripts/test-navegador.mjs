@@ -197,7 +197,7 @@ try {
     .setInputFiles({ name: "secreto.bin", mimeType: "application/octet-stream", buffer: contenido });
 
   // La fila del fichero aparece cuando la subida termina.
-  const fila = pagina.locator("li.dd-file-row").first();
+  const fila = pagina.locator("li[data-file-id]").first();
   await fila.waitFor({ timeout: 30000 });
   check("el fichero aparece en el panel", await fila.isVisible(), true);
   check("y se marca como cifrado", (await fila.innerText()).includes("Encrypted file") || (await fila.innerText()).includes("secreto.bin"), true);
@@ -273,7 +273,7 @@ try {
     .setInputFiles({ name: "de-fuera.bin", mimeType: "application/octet-stream", buffer: randomBytes(4096) });
   try {
     await invitado.locator("li").filter({ hasText: "de-fuera.bin" }).first().waitFor({ timeout: 30000 });
-    await invitado.locator("text=✅").first().waitFor({ timeout: 30000 });
+    await invitado.locator('li[data-state="done"]').first().waitFor({ timeout: 30000 });
   } catch (error) {
     console.log("  ! la cola del invitado no llegó a terminar; lo que se ve:");
     console.log((await invitado.locator("body").innerText()).split("\n").map((l) => `      ${l}`).join("\n"));
@@ -295,18 +295,20 @@ try {
   console.log("\nBorrar y salir");
   // Hay dos: el que subió la cuenta y el que entró por el enlace de invitado,
   // que es de quien lo repartió. Se borran los dos, uno a uno.
-  const antes = await pagina.locator("li.dd-file-row").count();
+  const antes = await pagina.locator("li[data-file-id]").count();
   check("el panel tiene lo propio y lo que entró por el enlace", antes, 2);
   for (let quedan = antes; quedan > 0; quedan--) {
     await pagina.locator('button[aria-label^="Delete"]').first().click();
+    // Borrar pide confirmación: se pulsa lo mismo que pulsaría una persona.
+    await pagina.locator('dialog[open] button[data-action="confirm-delete"]').click();
     await pagina.waitForFunction(
-      (n) => document.querySelectorAll("li.dd-file-row").length === n,
+      (n) => document.querySelectorAll("li[data-file-id]").length === n,
       quedan - 1,
       { timeout: 15000 }
     );
   }
   check("y los ficheros desaparecen al borrarlos",
-    await pagina.locator("li.dd-file-row").count(), 0);
+    await pagina.locator("li[data-file-id]").count(), 0);
 
   // El botón de salir de verdad, no una llamada a la API: es lo que se pulsa.
   await pagina.locator('button[aria-haspopup="menu"]').first().click();

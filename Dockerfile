@@ -6,14 +6,13 @@ WORKDIR /app
 # Aquí no se usan y no deben aparecer ni en esta capa intermedia.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 COPY package*.json ./
-# `npm ci` completo: vite, Tailwind y PostCSS son dependencias de desarrollo, y
-# sin ellas no hay nada que compilar. Nada de esto llega al runtime.
+# `npm ci` completo: vite y TypeScript son dependencias de desarrollo, y sin
+# ellas no hay nada que compilar. Nada de esto llega al runtime.
 RUN npm ci
-# postcss.config.mjs NO es opcional. Sin él, vite copia el CSS SIN PROCESAR y la
-# construcción no falla: la imagen sale con la página rota y todo en verde. Pasó
-# en SecretDrop, y por eso el recorrido de navegador comprueba un estilo
-# calculado contra esta imagen y no sólo que el CSS responda 200.
-COPY vite.config.mts postcss.config.mjs tsconfig.json ./
+# El CSS es CSS a secas, importado desde src/main.tsx: no hay PostCSS ni Tailwind
+# que pueda faltar en silencio. El recorrido de navegador sigue comprobando un
+# estilo calculado contra esta imagen, y no sólo que el CSS responda 200.
+COPY vite.config.mts tsconfig.json ./
 COPY public ./public
 COPY src ./src
 RUN npx vite build

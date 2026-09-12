@@ -1,28 +1,13 @@
-"use client";
-
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { routeParams } from "@/lib/navigation";
-import Link from "@/components/link";
-import { AlertTriangle, Clock, Download, Flame, Loader2, Save, Share2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { useCallback, useEffect, useState } from "react";
+import { Download, Flame, KeyRound, Loader, Lock, Save, Share2, ShieldAlert, Clock } from "lucide-react";
+import { Header } from "@/components/header";
+import { Button, LinkButton } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SiteHeader } from "@/components/site-header";
-import { ShareButton } from "@/components/share-button";
-import { QrDialog } from "@/components/qr-dialog";
-import {
-  fileEmoji,
-  formatBytes,
-  formatDateTime,
-  formatRemaining,
-} from "@/lib/format";
-import {
-  type CabeceraE2EE,
-  claveDesdeFragmento,
-  descifrarCabecera,
-  descifrarFichero,
-  leerPrefijo,
-} from "@/lib/e2ee";
+import { FileIcon } from "@/components/file-icon";
+import { QrButton, ShareButton } from "@/components/link-actions";
+import { fetchFileInfo, type PublicFileInfo } from "@/lib/api";
+import { type CabeceraE2EE, claveDesdeFragmento, descifrarCabecera, descifrarFichero, leerPrefijo } from "@/lib/e2ee";
 import {
   FalloFlujo,
   descargaEnFlujoDisponible,
@@ -31,236 +16,184 @@ import {
   entradaLlavero,
   esIOS,
 } from "@/lib/e2ee-client";
+import { fileKind } from "@/lib/file-kind";
+import { formatBytes, formatDateTime, formatRemainingLong } from "@/lib/format";
+import { routeParams } from "@/lib/navigation";
+import { useNow } from "@/lib/use-now";
 
-interface FileInfo {
-  id: string;
-  originalName: string;
-  size: number;
-  mimeType: string;
-  uploadedAt: number;
-  expiresAt: number;
-  downloadCount: number;
-  maxDownloads: number;
-  uploadedBy?: string;
-  /** El contenido es un bulto cifrado: el nombre y el tipo de arriba son marcadores. */
-  encrypted?: boolean;
-  /** El prefijo del bulto en base64: la cabecera cifrada, que solo abre la clave. */
-  header?: string;
-}
-
-/** Lo que queda en memoria tras descifrar: el fichero, listo para guardarse. */
-interface Descifrado {
+/** What stays in memory after decrypting: the file, ready to be saved. */
+interface Decrypted {
   blob: Blob;
   url: string;
-  nombre: string;
-  tipo: string;
+  name: string;
+  type: string;
 }
 
-/** En memoria: por encima de esto se avisa antes de intentarlo. */
-const AVISO_MEMORIA = 1.5 * 1024 * 1024 * 1024;
+type State =
+  | { status: "loading" }
+  | { status: "error"; error: string; reason: "expired" | "exhausted" | null }
+  | { status: "ready"; info: PublicFileInfo };
 
-const noopSubscribe = () => () => {};
+/** In memory: above this, the page warns before trying. */
+const MEMORY_WARNING = 1.5 * 1024 * 1024 * 1024;
 
-function desdeBase64(texto: string): Uint8Array {
-  const bin = atob(texto);
+function fromBase64(text: string): Uint8Array {
+  const bin = atob(text);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
 }
 
-export default function DownloadPage() {
-  const params = routeParams();
-  const id = params.id as string;
+function isMedia(type: string, family: "image" | "video" | "audio"): boolean {
+  return type.startsWith(`${family}/`) && type !== "image/svg+xml";
+}
 
-  const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reason, setReason] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * The download page, /d/<id>.
+ *
+ * For an encrypted file the key is the fragment of the URL: the part the
+ * browser never sends to any server. With it, the encrypted header from
+ * /api/info opens here and shows the real name before a download is spent; the
+ * file itself is decrypted in this browser, streamed to disk where the browser
+ * allows it and in memory where it does not.
+ */
+export function DownloadPage() {
+  const { id } = routeParams();
+  const [state, setState] = useState<State>({ status: "loading" });
   const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [fragment] = useState(() => window.location.hash || null);
+  const [header, setHeader] = useState<CabeceraE2EE | null>(null);
+  const [badKey, setBadKey] = useState(false);
+  const [keyringName] = useState(() => entradaLlavero(id)?.name ?? null);
+  const [decryptedName, setDecryptedName] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [ready, setReady] = useState<Decrypted | null>(null);
+  const now = useNow();
 
-  // La mitad del enlace que el servidor nunca vio: el fragmento. Solo existe en
-  // el navegador (los fragmentos no viajan en la petición), así que en el
-  // servidor se lee como null y el cliente lo resuelve al hidratar — el mismo
-  // patrón que usa el resto del repo para lo que solo el navegador sabe.
-  const montado = useSyncExternalStore(
-    noopSubscribe,
-    () => true,
-    () => false
-  );
-  const fragmento = montado ? window.location.hash || null : null;
-
-  // Lo que la clave deja ver antes de descargar: la cabecera cifrada que
-  // /api/info trae, abierta aquí. Si la clave no abre la cabecera, tampoco
-  // abrirá el fichero, y se dice antes de gastar una descarga en comprobarlo.
-  const [cabecera, setCabecera] = useState<CabeceraE2EE | null>(null);
-  const [claveMala, setClaveMala] = useState(false);
-
-  // El nombre de verdad si esta persona es quien subió (llavero local), o el
-  // que salga de la cabecera o de descifrar.
-  const [nombreDescifrado, setNombreDescifrado] = useState<string | null>(null);
-  const nombreReal =
-    nombreDescifrado ?? cabecera?.name ?? (montado ? entradaLlavero(id)?.name ?? null : null);
-
-  const [fallo, setFallo] = useState<string | null>(null);
-  const [listo, setListo] = useState<Descifrado | null>(null);
-
-  // Clock in state: reading Date.now() during render is impure and left the
-  // countdown frozen. The initial value never reaches the prerendered HTML because
-  // this block only paints once fileInfo is there, fetched on the client.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(tick);
-  }, []);
-
-  const cargarInfo = useCallback(async (): Promise<boolean> => {
-    try {
-      const res = await fetch(`/api/info/${id}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "File not found");
-        setReason(data.reason ?? null);
-        return false;
-      }
-      setFileInfo(data);
-      return true;
-    } catch {
-      setError("Could not load the file information");
-      return false;
-    }
+  const load = useCallback(async () => {
+    const result = await fetchFileInfo(id);
+    if (result.ok) setState({ status: "ready", info: result.info });
+    else setState({ status: "error", error: result.error, reason: result.reason });
   }, [id]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function primeraCarga() {
-      await cargarInfo();
-      if (!cancelled) setLoading(false);
-    }
-    void primeraCarga();
-    return () => {
-      cancelled = true;
-    };
-  }, [cargarInfo]);
+    void load();
+  }, [load]);
 
-  const cifrado = Boolean(fileInfo?.encrypted);
-  const claveValida = Boolean(fragmento && claveDesdeFragmento(fragmento));
+  const info = state.status === "ready" ? state.info : null;
+  const encrypted = Boolean(info?.encrypted);
+  const key = fragment ? claveDesdeFragmento(fragment) : null;
 
-  // Abrir la cabecera en cuanto hay clave y hay cabecera.
+  // Open the header as soon as there is a key and a header. If the key does not
+  // open the header it will not open the file either, and that is said before a
+  // download is spent finding out.
   useEffect(() => {
-    if (!fileInfo?.header || !fragmento) return;
-    const clave = claveDesdeFragmento(fragmento);
-    if (!clave) return;
+    if (!info?.header || !fragment) return;
+    const k = claveDesdeFragmento(fragment);
+    if (!k) return;
     let cancelled = false;
     (async () => {
       try {
-        const prefijo = leerPrefijo(desdeBase64(fileInfo.header!));
-        if (!prefijo) throw new Error("formato");
-        const abierta = await descifrarCabecera(clave, prefijo.cabeceraCifrada);
-        if (!cancelled) setCabecera(abierta);
+        const prefix = leerPrefijo(fromBase64(info.header!));
+        if (!prefix) throw new Error("format");
+        const opened = await descifrarCabecera(k, prefix.cabeceraCifrada);
+        if (!cancelled) setHeader(opened);
       } catch {
-        if (!cancelled) setClaveMala(true);
+        if (!cancelled) setBadKey(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [fileInfo?.header, fragmento]);
+  }, [info?.header, fragment]);
 
-  // Los blobs se sueltan al desmontar, no antes: un botón de guardar que se
-  // pulsa tarde tiene que seguir apuntando a algo.
+  // Blobs are released on unmount, not before: a save button pressed late has
+  // to still point at something.
   useEffect(() => {
     return () => {
-      if (listo) URL.revokeObjectURL(listo.url);
+      if (ready) URL.revokeObjectURL(ready.url);
     };
-  }, [listo]);
+  }, [ready]);
 
-  function download() {
+  function downloadPlain() {
     setDownloading(true);
-    // Direct navigation: let the browser handle the download (and resume it, since
-    // the server supports Range requests).
+    // Direct navigation: the browser handles the download and can resume it,
+    // since the server supports Range requests.
     window.location.href = `/api/download/${id}`;
     setTimeout(() => setDownloading(false), 2500);
   }
 
-  /** Un código del servidor, dicho como lo que es y no como un fallo de clave. */
-  async function explicarEstado(estado: number) {
-    if (estado === 410) {
-      // Se acabó mientras mirábamos: que la pantalla lo diga con su motivo.
-      await cargarInfo();
+  /** A server status, said as what it is and not as a key problem. */
+  async function explain(status: number) {
+    if (status === 410) {
+      await load();
       return;
     }
-    if (estado === 429) {
-      setFallo("Too many downloads from your network right now. Try again in a minute.");
+    if (status === 429) {
+      setFailure("Too many downloads from your network right now. Try again in a minute.");
       return;
     }
-    setFallo(`The server did not send the file (${estado}). Try again in a moment.`);
+    setFailure(`The server did not send the file (${status}). Try again in a moment.`);
   }
 
-  /** El fichero descifrado, entregado como descarga o vía la hoja de compartir. */
-  function guardar(d: Descifrado) {
-    const fichero = new File([d.blob], d.nombre, { type: d.tipo });
-    const compartir = typeof navigator.share === "function" &&
+  /** The decrypted file, handed over as a download or through the share sheet. */
+  function save(d: Decrypted) {
+    const file = new File([d.blob], d.name, { type: d.type });
+    const canShare =
+      typeof navigator.share === "function" &&
       typeof navigator.canShare === "function" &&
-      navigator.canShare({ files: [fichero] });
-    // En iOS la hoja de compartir es la única forma fiable de «guardar en
-    // Fotos» o «guardar en Archivos»; en un navegador incrustado, a veces la
-    // única de sacar el fichero de la app. Tiene que llamarse dentro del
-    // gesto, así que es un botón y no algo que pasa solo tras descifrar.
-    if (compartir && (esIOS() || entornoSinFlujo())) {
-      navigator.share({ files: [fichero], title: d.nombre }).catch(() => {
-        // Cancelar la hoja no es un fallo. Si de verdad no se puede, queda el enlace de abajo.
+      navigator.canShare({ files: [file] });
+    // On iOS the share sheet is the only reliable "save to Photos" or "save to
+    // Files"; in an embedded browser, sometimes the only way out of the app.
+    if (canShare && (esIOS() || entornoSinFlujo())) {
+      navigator.share({ files: [file], title: d.name }).catch(() => {
+        // Cancelling the sheet is not a failure; the direct link below remains.
       });
       return;
     }
     const a = document.createElement("a");
     a.href = d.url;
-    a.download = d.nombre;
+    a.download = d.name;
     a.click();
   }
 
   /**
-   * El camino cifrado: bajar el bulto, abrirlo AQUÍ y entregar el claro.
-   *
-   * El servidor solo ve la descarga del bulto, que cuenta cuando ha salido
-   * entera; el descifrado y el nombre de verdad ocurren en este navegador con
-   * la clave del fragmento. Cualquier manipulación del bulto —un byte, un
-   * trozo movido, un recorte— hace saltar el GCM y se dice, no se entrega un
-   * fichero a medias.
+   * The encrypted path: fetch the bundle, open it HERE, hand over the plain file.
+   * Any tampering with the bundle trips the authentication and is reported;
+   * a half file is never delivered.
    */
-  async function descargarCifrado() {
-    const clave = fragmento ? claveDesdeFragmento(fragmento) : null;
-    if (!clave) return;
+  async function downloadEncrypted() {
+    if (!key) return;
     setDownloading(true);
-    setFallo(null);
+    setFailure(null);
+    setProgress(null);
 
-    // El camino bueno: descifrar hacia disco vía service worker, sin memoria.
-    // Solo donde funciona (Chromium de escritorio y Android; ver
-    // entornoSinFlujo) y, si falla antes del primer byte, se cae a memoria:
-    // el bulto sigue intacto y no ha nacido ninguna descarga a medias.
+    // The good path: decrypt to disk through the service worker, no memory.
+    // If it fails before the first byte, fall back to memory: the bundle is
+    // intact and no half download was born.
     if (descargaEnFlujoDisponible()) {
       try {
-        const { nombre } = await descargarEnFlujo(id, clave);
-        setNombreDescifrado(nombre);
+        const { nombre } = await descargarEnFlujo(id, key, (done, total) => setProgress({ done, total }));
+        setDecryptedName(nombre);
         setDownloading(false);
+        setProgress(null);
         return;
       } catch (error) {
+        setProgress(null);
         if (error instanceof Error && error.message === "cancelled") {
           setDownloading(false);
           return;
         }
         if (error instanceof FalloFlujo && error.antesDelPrimerByte) {
           if (error.estado) {
-            await explicarEstado(error.estado);
+            await explain(error.estado);
             setDownloading(false);
             return;
           }
-          // Sin bytes fuera: probar en memoria es seguro. Sigue abajo.
+          // No bytes out: trying in memory is safe. Continue below.
         } else {
-          // Falló a mitad: el navegador ya marcó la descarga como fallida y
-          // esto solo añade el porqué.
-          setFallo(
-            "The download stopped part-way: the stored data does not verify. Ask whoever sent it to upload it again."
-          );
+          setFailure("The download stopped part-way: the stored data does not verify. Ask whoever sent it to upload it again.");
           setDownloading(false);
           return;
         }
@@ -270,292 +203,268 @@ export default function DownloadPage() {
     try {
       const res = await fetch(`/api/download/${id}`);
       if (!res.ok) {
-        await explicarEstado(res.status);
+        await explain(res.status);
         return;
       }
-      const bulto = new Uint8Array(await res.arrayBuffer());
-      const abierto = await descifrarFichero(clave, bulto);
-      if (!abierto) throw new Error("formato");
-      const blob = new Blob([abierto.datos as unknown as ArrayBuffer], { type: abierto.cabecera.mimeType });
-      const d: Descifrado = {
+      const bundle = new Uint8Array(await res.arrayBuffer());
+      const opened = await descifrarFichero(key, bundle);
+      if (!opened) throw new Error("format");
+      const blob = new Blob([opened.datos as unknown as ArrayBuffer], { type: opened.cabecera.mimeType });
+      const d: Decrypted = {
         blob,
         url: URL.createObjectURL(blob),
-        nombre: abierto.cabecera.name,
-        tipo: abierto.cabecera.mimeType,
+        name: opened.cabecera.name,
+        type: opened.cabecera.mimeType,
       };
-      setListo(d);
-      setNombreDescifrado(d.nombre);
-      // Donde una descarga de blob funciona sin más, que salga sola; donde no
-      // (iOS, navegadores incrustados), el botón de guardar hace el resto.
-      if (!esIOS() && !entornoSinFlujo()) guardar(d);
+      setReady(d);
+      setDecryptedName(d.name);
+      // Where a blob download just works, let it go; where it does not (iOS,
+      // embedded browsers), the save button does the rest.
+      if (!esIOS() && !entornoSinFlujo()) save(d);
     } catch {
-      setFallo(
-        "Could not decrypt this file: the link may be incomplete, or the stored data does not verify. Nothing was delivered."
-      );
+      setFailure("Could not decrypt this file: the link may be incomplete, or the stored data does not verify. Nothing was delivered.");
     } finally {
       setDownloading(false);
     }
   }
 
-  const expired = fileInfo ? fileInfo.expiresAt <= now : false;
-  const nombreMostrado = cifrado ? nombreReal ?? "Encrypted file" : fileInfo?.originalName ?? "";
-  const tipoMostrado = cifrado ? cabecera?.mimeType ?? fileInfo?.mimeType ?? "" : fileInfo?.mimeType ?? "";
-  const tamanoMostrado = cifrado ? cabecera?.size ?? fileInfo?.size ?? 0 : fileInfo?.size ?? 0;
-  const enMemoria = cifrado && claveValida && !descargaEnFlujoDisponible();
+  // ── Render ──────────────────────────────────────────────────────────
 
-  return (
-    <>
-      <SiteHeader />
-
-      <main className="mx-auto flex w-full max-w-md flex-1 items-center justify-center px-4 py-10 pb-safe sm:py-16">
-        {loading ? (
-          <div className="w-full space-y-4">
-            <Skeleton className="mx-auto size-16 rounded-2xl" />
-            <Skeleton className="mx-auto h-6 w-3/4" />
-            <Skeleton className="h-32 w-full rounded-xl" />
-            <Skeleton className="h-12 w-full rounded-xl" />
+  if (state.status === "loading") {
+    return (
+      <>
+        <Header />
+        <main className="container-sm dl pb-safe" aria-busy="true">
+          <div className="dl-hero">
+            <Skeleton style={{ width: 76, height: 76, borderRadius: 22 }} />
+            <Skeleton style={{ width: "70%", height: 28 }} />
+            <Skeleton style={{ width: "40%", height: 16 }} />
           </div>
-        ) : error ? (
-          <div className="w-full rounded-2xl border border-border bg-card/70 p-8 text-center">
-            <span
-              aria-hidden
-              className={`mx-auto grid size-14 place-items-center rounded-2xl ring-1 ${
-                reason === "exhausted"
-                  ? "bg-warning/10 text-warning ring-warning/25"
-                  : "bg-destructive/10 text-destructive ring-destructive/25"
-              }`}
-            >
-              {reason === "exhausted" ? (
-                <Flame className="size-6" />
-              ) : (
-                <AlertTriangle className="size-6" />
-              )}
-            </span>
+          <Skeleton style={{ height: 150, borderRadius: 16 }} />
+          <Skeleton style={{ height: 50, borderRadius: 14 }} />
+        </main>
+      </>
+    );
+  }
 
-            <h1 className="mt-4 text-xl font-semibold tracking-tight">
+  if (state.status === "error") {
+    const { reason, error } = state;
+    return (
+      <>
+        <Header />
+        <main className="container-sm dl pb-safe">
+          <div className="card state rise">
+            <FileIcon kind="file" size="lg" />
+            <h1>
               {reason === "exhausted"
                 ? "This file has been used up"
                 : reason === "expired"
                   ? "This link has expired"
                   : "File not available"}
             </h1>
-            <p className="mt-2 text-sm text-muted-foreground text-balance">
+            <p>
               {reason
                 ? "Files delete themselves once they expire or run out of downloads. Ask whoever sent it to upload it again."
                 : error}
             </p>
-
-            <Button render={<Link href="/" />} variant="outline" className="mt-6 h-11 w-full">
-Go to DocDrop
-            </Button>
+            <span className="badge" data-tone="danger">
+              <Flame aria-hidden />
+              {reason === "exhausted" ? "Download limit reached" : reason === "expired" ? "Expired" : "Not found"}
+            </span>
+            <LinkButton href="/" variant="outline">
+              Go to DocDrop
+            </LinkButton>
           </div>
-        ) : fileInfo ? (
-          <div className="w-full">
-            <div className="text-center">
-              <span aria-hidden className="text-5xl sm:text-6xl">
-                {cifrado && !cabecera && !nombreDescifrado ? "🔒" : fileEmoji(tipoMostrado, nombreMostrado)}
+        </main>
+      </>
+    );
+  }
+
+  const file = state.info;
+  const expired = file.expiresAt <= now;
+  const realName = decryptedName ?? header?.name ?? keyringName;
+  const shownName = encrypted ? (realName ?? "Encrypted file") : file.originalName;
+  const shownType = encrypted ? (header?.mimeType ?? "") : file.mimeType;
+  const shownSize = encrypted ? (header?.size ?? file.size) : file.size;
+  const inMemory = encrypted && Boolean(key) && !descargaEnFlujoDisponible();
+  const sharePath = `/d/${id}${encrypted && fragment ? fragment : ""}`;
+  const kind = encrypted && !realName ? "encrypted" : fileKind(shownType, shownName);
+  const downloadsLeft = file.maxDownloads > 0 ? file.maxDownloads - file.downloadCount : null;
+
+  return (
+    <>
+      <Header />
+      <main className="container-sm dl pb-safe">
+        <div className="dl-hero rise">
+          <FileIcon kind={kind} size="lg" />
+          <h1 title={shownName}>{shownName}</h1>
+          <div className="sub">
+            {encrypted && (
+              <span className="badge" data-tone="ice">
+                <Lock aria-hidden />
+                End-to-end encrypted
               </span>
-              <h1
-                className="mt-4 text-xl font-semibold tracking-tight break-words text-balance sm:text-2xl"
-                title={nombreMostrado}
-              >
-                {nombreMostrado}
-              </h1>
-              {cifrado && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {cabecera
-                    ? "Encrypted in the sender's browser. This link holds the key; the server never had it."
-                    : "Encrypted in the sender's browser — this server cannot read it."}
-                </p>
-              )}
-              {fileInfo.uploadedBy && (
-                <p className="mt-1 text-xs text-muted-foreground">from {fileInfo.uploadedBy}</p>
-              )}
-              <p className="mt-1 text-sm tabular-nums text-muted-foreground">
-                {formatBytes(tamanoMostrado)}
-              </p>
-            </div>
-
-            {/* Preview: look before downloading several GB. Served with ?inline=1,
-                which consumes no downloads and only allows types that cannot run
-                scripts in this origin. Encrypted files preview after decrypting,
-                from the bytes already paid for, further down. */}
-            {!expired && !cifrado && fileInfo.mimeType.startsWith("video/") && (
-              <video
-                controls
-                preload="metadata"
-                playsInline
-                className="mt-6 w-full rounded-2xl border border-border bg-black"
-                src={`/api/download/${id}?inline=1`}
-              >
-Your browser cannot play this video.
-              </video>
             )}
+            <span className="size">{formatBytes(shownSize)}</span>
+            {file.uploadedBy && <span>from {file.uploadedBy}</span>}
+          </div>
+          {encrypted && (
+            <p className="dl-fine">
+              {header
+                ? "Encrypted in the sender's browser. This link holds the key; the server never had it."
+                : "Encrypted in the sender's browser — this server cannot read it."}
+            </p>
+          )}
+        </div>
 
-            {!expired && !cifrado && fileInfo.mimeType.startsWith("audio/") && (
-              <audio controls className="mt-6 w-full" src={`/api/download/${id}?inline=1`}>
-Your browser cannot play this audio.
-              </audio>
-            )}
+        {/* Preview: look before downloading several GB. Served with ?inline=1,
+            which spends no downloads and only allows types that cannot run
+            scripts in this origin. Encrypted files preview after decrypting. */}
+        {!expired && !encrypted && isMedia(file.mimeType, "video") && (
+          <video controls preload="metadata" playsInline className="preview" src={`/api/download/${id}?inline=1`} />
+        )}
+        {!expired && !encrypted && isMedia(file.mimeType, "audio") && (
+          <audio controls className="preview" src={`/api/download/${id}?inline=1`} />
+        )}
+        {!expired && !encrypted && isMedia(file.mimeType, "image") && (
+          <img src={`/api/download/${id}?inline=1`} alt={file.originalName} className="preview preview-img" />
+        )}
+        {ready && isMedia(ready.type, "image") && <img src={ready.url} alt={ready.name} className="preview preview-img" />}
+        {ready && isMedia(ready.type, "video") && <video controls playsInline className="preview" src={ready.url} />}
+        {ready && isMedia(ready.type, "audio") && <audio controls className="preview" src={ready.url} />}
 
-            {!expired &&
-              !cifrado &&
-              fileInfo.mimeType.startsWith("image/") &&
-              fileInfo.mimeType !== "image/svg+xml" && (
-                <img
-                  src={`/api/download/${id}?inline=1`}
-                  alt={fileInfo.originalName}
-                  className="mt-6 w-full rounded-2xl border border-border bg-card object-contain"
-                />
-              )}
+        <dl className="meta">
+          <div>
+            <dt>Type</dt>
+            <dd className="mono">{shownType || "unknown until decrypted"}</dd>
+          </div>
+          <div>
+            <dt>
+              <Clock aria-hidden />
+              Uploaded
+            </dt>
+            <dd>{formatDateTime(file.uploadedAt)}</dd>
+          </div>
+          <div>
+            <dt>
+              <Flame aria-hidden />
+              Expires
+            </dt>
+            <dd className={expired ? "danger" : "ok"}>{expired ? "expired" : `in ${formatRemainingLong(file.expiresAt, now)}`}</dd>
+          </div>
+          <div>
+            <dt>
+              <Download aria-hidden />
+              Downloads
+            </dt>
+            <dd>{file.maxDownloads > 0 ? `${file.downloadCount} of ${file.maxDownloads} used` : "No limit"}</dd>
+          </div>
+        </dl>
 
-            {listo && listo.tipo.startsWith("image/") && listo.tipo !== "image/svg+xml" && (
-              <img
-                src={listo.url}
-                alt={listo.nombre}
-                className="mt-6 w-full rounded-2xl border border-border bg-card object-contain"
-              />
-            )}
-            {listo && listo.tipo.startsWith("video/") && (
-              <video controls playsInline className="mt-6 w-full rounded-2xl border border-border bg-black" src={listo.url} />
-            )}
-            {listo && listo.tipo.startsWith("audio/") && (
-              <audio controls className="mt-6 w-full" src={listo.url} />
-            )}
-
-            <div className="mt-6 rounded-2xl border border-border bg-card/70 p-4 sm:p-5">
-              <dl className="space-y-3 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">Type</dt>
-                  <dd className="truncate font-mono text-xs">{tipoMostrado}</dd>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">Uploaded</dt>
-                  <dd className="text-right">{formatDateTime(fileInfo.uploadedAt)}</dd>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground">
-                    <Clock className="size-3.5" aria-hidden />
-Expires
-                  </dt>
-                  <dd className={expired ? "font-medium text-destructive" : "font-medium text-success"}>
-                    {expired ? "expired" : `in ${formatRemaining(fileInfo.expiresAt, now)}`}
-                  </dd>
-                </div>
-                {fileInfo.maxDownloads > 0 && (
-                  <>
-                    <Separator />
-                    <div className="flex items-center justify-between gap-4">
-                      <dt className="text-muted-foreground">Downloads</dt>
-                      <dd className="tabular-nums">
-                        {fileInfo.downloadCount} of {fileInfo.maxDownloads}
-                      </dd>
-                    </div>
-                  </>
-                )}
-              </dl>
-            </div>
-
-            {expired ? (
-              <p className="mt-6 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-center text-sm text-destructive">
-This file has expired and is no longer available.
-              </p>
-            ) : cifrado && !claveValida ? (
-              // El enlace llegó sin su mitad secreta. Decir exactamente eso, y
-              // qué tiene que hacer quien lo mandó: el servidor no puede
-              // reponerla porque nunca la tuvo.
-              <div className="mt-6 rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">This link is missing its key</p>
-                <p className="mt-1">
-                  The key is the part after <span className="font-mono">#</span>, and it did not
-                  arrive. The server never had it and cannot recover it.
-                </p>
-                <p className="mt-2">
-                  Ask whoever sent it to copy the link again <strong>from the browser they uploaded
-                  with</strong> — the key only exists there — and to send it whole.
-                </p>
-              </div>
-            ) : cifrado && claveMala ? (
-              <p className="mt-6 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-center text-sm text-destructive">
-The key in this link does not open this file. The link is probably incomplete or altered;
-ask whoever sent it for it again, whole.
-              </p>
-            ) : listo ? (
-              <div className="mt-6 space-y-2">
-                <Button size="lg" className="h-12 w-full text-base" onClick={() => guardar(listo)}>
-                  {esIOS() || entornoSinFlujo() ? (
-                    <Share2 className="size-5" aria-hidden />
-                  ) : (
-                    <Save className="size-5" aria-hidden />
-                  )}
-                  Save {listo.nombre}
-                </Button>
-                <p className="text-center text-xs text-muted-foreground">
-                  Decrypted in this browser.{" "}
-                  <a href={listo.url} download={listo.nombre} className="underline underline-offset-4">
-                    Or open it directly.
-                  </a>
-                </p>
-              </div>
-            ) : (
-              <div className="mt-6 flex items-center gap-2">
-                <Button
-                  size="lg"
-                  className="h-12 flex-1 text-base"
-                  onClick={cifrado ? descargarCifrado : download}
-                  disabled={downloading}
-                >
-                  {downloading ? (
-                    <Loader2 className="size-5 animate-spin" aria-hidden />
-                  ) : (
-                    <Download className="size-5" aria-hidden />
-                  )}
-                  {downloading ? (cifrado ? "Decrypting…" : "Starting…") : "Download"}
-                </Button>
-                {/* Forward the link to someone else without going back to the dashboard.
-                    Con cifrado, el fragmento viaja en lo que se comparte: sin él, el
-                    enlace no abre nada. */}
-                <ShareButton
-                  path={`/d/${id}${cifrado && fragmento ? fragmento : ""}`}
-                  title={nombreMostrado}
-                  className="size-12 shrink-0"
-                />
-                <QrDialog
-                  path={`/d/${id}${cifrado && fragmento ? fragmento : ""}`}
-                  filename={nombreMostrado}
-                />
-              </div>
-            )}
-
-            {fallo && (
-              <p className="mt-3 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-center text-sm text-destructive">
-                {fallo}
-              </p>
-            )}
-
-            {enMemoria && !listo && tamanoMostrado > AVISO_MEMORIA && (
-              <p className="mt-3 text-center text-xs text-muted-foreground">
-This browser decrypts in memory and this file is large; on a phone it may run out.
-A desktop browser decrypts straight to disk.
-              </p>
-            )}
-
-            {fileInfo.maxDownloads > 0 && !expired && !listo && (
-              <p className="mt-3 text-center text-xs text-muted-foreground">
-                {fileInfo.maxDownloads - fileInfo.downloadCount} downloads left before it is
-                deleted. A download counts once it has fully arrived.
-              </p>
-            )}
-
-            <p className="mt-8 text-center text-xs text-muted-foreground">
-              <Link href="/" className="underline-offset-4 hover:text-foreground hover:underline">
-Share your own files with DocDrop
-              </Link>
+        {expired ? (
+          <div className="note" data-tone="danger">
+            <p className="note-title">
+              <Flame aria-hidden />
+              This file has expired
+            </p>
+            <p>It is no longer available. Ask whoever sent it to upload it again.</p>
+          </div>
+        ) : encrypted && !key ? (
+          // The link arrived without its secret half. Say exactly that, and what
+          // whoever sent it has to do: the server cannot restore what it never had.
+          <div className="note" data-tone="warn">
+            <p className="note-title">
+              <KeyRound aria-hidden />
+              This link is missing its key
+            </p>
+            <p>
+              The key is the part after <code>#</code>, and it did not arrive. The server never had it and cannot
+              recover it.
+            </p>
+            <p>
+              Ask whoever sent it to copy the link again <strong>from the browser they uploaded with</strong> — the
+              key only exists there — and to send it whole.
             </p>
           </div>
-        ) : null}
+        ) : encrypted && badKey ? (
+          <div className="note" data-tone="danger">
+            <p className="note-title">
+              <ShieldAlert aria-hidden />
+              The key in this link does not open this file
+            </p>
+            <p>The link is probably incomplete or altered. Ask whoever sent it for it again, whole.</p>
+          </div>
+        ) : ready ? (
+          <div>
+            <Button variant="primary" size="lg" block onClick={() => save(ready)}>
+              {esIOS() || entornoSinFlujo() ? <Share2 /> : <Save />}
+              Save {ready.name}
+            </Button>
+            <p className="dl-fine" style={{ marginTop: 10 }}>
+              Decrypted in this browser.{" "}
+              <a href={ready.url} download={ready.name} style={{ textDecoration: "underline" }}>
+                Or open it directly.
+              </a>
+            </p>
+          </div>
+        ) : (
+          <div className="dl-actions">
+            <Button variant="primary" size="lg" onClick={encrypted ? downloadEncrypted : downloadPlain} disabled={downloading}>
+              {downloading ? <Loader className="spin" /> : <Download />}
+              {downloading ? (encrypted ? "Decrypting…" : "Starting…") : "Download"}
+            </Button>
+            {/* Forward the link without going back to the dashboard. With
+                encryption the fragment travels in what is shared: without it
+                the link opens nothing. */}
+            <ShareButton path={sharePath} title={shownName} size="icon-lg" variant="secondary" />
+            <QrButton path={sharePath} filename={shownName} size="icon-lg" variant="secondary" />
+          </div>
+        )}
+
+        {downloading && encrypted && (
+          <div className="card dl-progress">
+            <div className="dl-progress-row">
+              <Lock size={14} aria-hidden style={{ color: "var(--ice-text)" }} />
+              <span>{progress ? "Decrypting straight to disk" : "Fetching and decrypting"}</span>
+              {progress && (
+                <span className="num">
+                  {formatBytes(progress.done)} / {formatBytes(progress.total)}
+                </span>
+              )}
+            </div>
+            <Progress
+              value={progress && progress.total > 0 ? (progress.done / progress.total) * 100 : 0}
+              indeterminate={!progress}
+              live
+              tone="ice"
+              label="Decryption progress"
+            />
+          </div>
+        )}
+
+        {failure && (
+          <div className="note" data-tone="danger" role="alert">
+            <p>{failure}</p>
+          </div>
+        )}
+
+        {inMemory && !ready && shownSize > MEMORY_WARNING && (
+          <p className="dl-fine">
+            This browser decrypts in memory and this file is large; on a phone it may run out. A desktop browser
+            decrypts straight to disk.
+          </p>
+        )}
+
+        {downloadsLeft !== null && !expired && !ready && (
+          <p className="dl-fine">
+            {downloadsLeft} download{downloadsLeft === 1 ? "" : "s"} left before it is deleted. A download counts once
+            it has fully arrived.
+          </p>
+        )}
+
+        <p className="dl-back">
+          <a href="/">Share your own files with DocDrop</a>
+        </p>
       </main>
     </>
   );

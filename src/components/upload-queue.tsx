@@ -1,442 +1,213 @@
-"use client";
-
-import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Loader2, X } from "lucide-react";
-import { toast } from "sonner";
+import { Check, CircleCheck, KeyRound, Lock, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { CopyLinkButton } from "@/components/copy-link-button";
-import { ShareButton } from "@/components/share-button";
-import { fileEmoji, formatBytes } from "@/lib/format";
-import { uploadFileInChunks, type UploadHandle, type UploadResult } from "@/lib/chunked-upload";
-import {
-  NOMBRE_CIFRADO,
-  TIPO_CIFRADO,
-  apuntarClaveEnVuelo,
-  claveEnVuelo,
-  consolidarClave,
-  fuenteCifrada,
-} from "@/lib/e2ee-client";
-
-type ItemState = "pending" | "uploading" | "done" | "error" | "cancelled";
-
-export interface QueueItem {
-  key: string;
-  file: File;
-  state: ItemState;
-  loaded: number;
-  resumed: boolean;
-  error?: string;
-  result?: UploadResult & { encrypted: boolean };
-}
+import { FileIcon } from "@/components/file-icon";
+import { LinkBox } from "@/components/link-box";
+import { QrButton, ShareButton } from "@/components/link-actions";
+import { fileKind } from "@/lib/file-kind";
+import { formatBytes, formatEta, formatRate, plural } from "@/lib/format";
+import type { QueueItem } from "@/lib/upload-queue";
+import { useNow } from "@/lib/use-now";
 
 interface Props {
-  ttlHours: number;
-  maxDownloads: number;
-  /** Encrypt in the browser before the first byte leaves it. The default. */
-  encrypt: boolean;
-  onCompleted: () => void;
-  /** Extra headers on every upload request — how the guest page authenticates. */
-  headers?: Record<string, string>;
-  /** Called on 401. The dashboard goes to /login; the guest page shows its own error. */
-  onUnauthorized?: () => void;
-}
-
-export interface UploadQueueHandle {
-  enqueue: (files: File[]) => void;
-  hasItems: boolean;
-}
-
-/**
- * Upload queue.
- *
- * Files go up two at a time: firing them all at once splits the bandwidth across
- * many connections and nothing finishes, which with multi-GB videos is the worst
- * possible outcome. Two at a time keeps the link busy and something visibly moving.
- */
-export function useUploadQueue({
-  ttlHours,
-  maxDownloads,
-  encrypt,
-  onCompleted,
-  headers,
-  onUnauthorized,
-}: Props) {
-  const [items, setItems] = useState<QueueItem[]>([]);
-  // The queue lives in a ref and state is just its mirror for painting: the logic
-  // needs to read the current list outside the render cycle, and this way an object
-  // already handed to React is never mutated.
-  const queue = useRef<QueueItem[]>([]);
-  const handles = useRef(new Map<string, UploadHandle>());
-  const running = useRef(0);
-  const wakeLock = useRef<WakeLockSentinel | null>(null);
-  // Options are read when each upload starts, not when it is queued: changing them
-  // affects whatever is still pending without rebuilding the queue.
-  const optionsRef = useRef({ ttlHours, maxDownloads, encrypt });
-
-  useEffect(() => {
-    optionsRef.current = { ttlHours, maxDownloads, encrypt };
-  }, [ttlHours, maxDownloads, encrypt]);
-
-  const commit = useCallback((next: QueueItem[]) => {
-    queue.current = next;
-    setItems(next);
-  }, []);
-
-  const update = useCallback(
-    (key: string, patch: Partial<QueueItem>) => {
-      commit(queue.current.map((it) => (it.key === key ? { ...it, ...patch } : it)));
-    },
-    [commit]
-  );
-
-  /**
-   * Keeps the screen awake while uploading. On a phone, locking the screen suspends
-   * the upload: resuming saves the progress, but forces the user to come back and
-   * pick the file again. This avoids that in the first place.
-   */
-  const acquireWakeLock = useCallback(async () => {
-    if (wakeLock.current || !("wakeLock" in navigator)) return;
-    try {
-      wakeLock.current = await navigator.wakeLock.request("screen");
-      wakeLock.current.addEventListener("release", () => {
-        wakeLock.current = null;
-      });
-    } catch {
-      // The browser may refuse (background tab, low battery).
-    }
-  }, []);
-
-  const releaseWakeLock = useCallback(() => {
-    wakeLock.current?.release().catch(() => {});
-    wakeLock.current = null;
-  }, []);
-
-  // The system drops the lock when the tab is hidden; it is re-acquired on return.
-  useEffect(() => {
-    function onVisible() {
-      if (document.visibilityState === "visible" && running.current > 0) {
-        void acquireWakeLock();
-      }
-    }
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [acquireWakeLock]);
-
-  // pump reschedules itself as each upload finishes; the indirection avoids using
-  // the constant before it is declared.
-  const pumpRef = useRef<() => void>(() => {});
-
-  const pump = useCallback(() => {
-    const MAX_PARALLEL = 2;
-
-    for (const item of queue.current) {
-      if (running.current >= MAX_PARALLEL) break;
-      if (item.state !== "pending") continue;
-
-      const { key, file } = item;
-      running.current += 1;
-      update(key, { state: "uploading" });
-      void acquireWakeLock();
-
-      /**
-       * Cifrado por defecto, con interruptor. Cuando va cifrado, la clave nace
-       * aquí, se apunta al llavero antes del primer byte (una reanudación con
-       * clave perdida produciría un bulto Frankenstein, así que la clave se
-       * persiste primero), y al completar pasa a colgar del id del fichero.
-       *
-       * Sin cifrar, el transporte recibe el fichero tal cual: el servidor lo
-       * puede leer, previsualizar y meter en un zip, y el enlace no lleva
-       * ninguna mitad secreta que perder. Es una elección de quien sube, y la
-       * interfaz dice claramente cuál es el precio de cada lado.
-       *
-       * `fuenteCifrada` es asíncrona (cifra la cabecera), así que el mango se
-       * monta en dos tiempos: la promesa exterior encadena fuente → transporte,
-       * y `abort` se re-apunta al transporte real en cuanto existe.
-       */
-      const ctl: { abort: () => void } = { abort: () => {} };
-      const cifrar = optionsRef.current.encrypt;
-      const promesa: Promise<UploadResult & { encrypted: boolean }> = (async () => {
-        if (!cifrar) {
-          const interno = uploadFileInChunks(file, {
-            ttlHours: optionsRef.current.ttlHours,
-            maxDownloads: optionsRef.current.maxDownloads,
-            onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
-            headers,
-          });
-          ctl.abort = interno.abort;
-          const resultado = await interno.promise;
-          return { ...resultado, encrypted: false };
-        }
-        const clavePrevia = claveEnVuelo(file) ?? undefined;
-        const fuente = await fuenteCifrada(file, clavePrevia);
-        apuntarClaveEnVuelo(file, fuente.fragmento);
-        const interno = uploadFileInChunks(file, {
-          ttlHours: optionsRef.current.ttlHours,
-          maxDownloads: optionsRef.current.maxDownloads,
-          onProgress: ({ loaded, resumed }) => update(key, { loaded, resumed }),
-          headers,
-          fuente,
-          neutro: { filename: NOMBRE_CIFRADO, mimeType: TIPO_CIFRADO },
-        });
-        ctl.abort = interno.abort;
-        const resultado = await interno.promise;
-        consolidarClave(file, resultado.id, fuente.fragmento);
-        // El enlace útil lleva la clave; el nombre de verdad, el del fichero.
-        return {
-          ...resultado,
-          originalName: file.name,
-          downloadUrl: `${resultado.downloadUrl}#${fuente.fragmento}`,
-          encrypted: true,
-        };
-      })();
-      const handle: UploadHandle = { promise: promesa, abort: () => ctl.abort() };
-      handles.current.set(key, handle);
-
-      promesa
-        .then((result) => {
-          update(key, { state: "done", result, loaded: result.size });
-          toast.success("Uploaded", { description: file.name });
-          onCompleted();
-        })
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : "Upload failed";
-          if (message === "UNAUTHORIZED") {
-            if (onUnauthorized) {
-              update(key, { state: "error", error: "No longer authorised" });
-              onUnauthorized();
-            } else {
-              // `/login` no existe en esta aplicación —solo hay `/`— así que esto
-              // llevaba a un 404 cuando caducaba la sesión. El punto de entrada real
-              // es la ruta de API, que redirige al proveedor de identidad.
-              window.location.href = "/api/auth/login";
-            }
-            return;
-          }
-          if (message === "ABORTED") {
-            update(key, { state: "cancelled" });
-          } else {
-            update(key, { state: "error", error: message });
-            toast.error(file.name, { description: message });
-          }
-        })
-        .finally(() => {
-          handles.current.delete(key);
-          running.current -= 1;
-          if (running.current === 0) releaseWakeLock();
-          // Start the next one in the queue.
-          setTimeout(() => pumpRef.current(), 0);
-        });
-    }
-  }, [acquireWakeLock, releaseWakeLock, onCompleted, update, headers, onUnauthorized]);
-
-  useEffect(() => {
-    pumpRef.current = pump;
-  }, [pump]);
-
-  const enqueue = useCallback(
-    (files: File[]) => {
-      if (files.length === 0) return;
-      const base = queue.current.length;
-      commit([
-        ...queue.current,
-        ...files.map((file, i) => ({
-          // Stable key even if name and size repeat within the same batch.
-          key: `${file.name}:${file.size}:${file.lastModified}:${base + i}`,
-          file,
-          state: "pending" as ItemState,
-          loaded: 0,
-          resumed: false,
-        })),
-      ]);
-      setTimeout(() => pumpRef.current(), 0);
-    },
-    [commit]
-  );
-
-  const cancel = useCallback((key: string) => {
-    handles.current.get(key)?.abort();
-  }, []);
-
-  const clearFinished = useCallback(() => {
-    commit(queue.current.filter((it) => it.state === "pending" || it.state === "uploading"));
-  }, [commit]);
-
-  return { items, enqueue, cancel, clearFinished };
-}
-
-// ─── Presentation ────────────────────────────────────────────────────
-export function UploadQueue({
-  items,
-  onCancel,
-  onClearFinished,
-  modoInvitado = false,
-}: {
   items: QueueItem[];
   onCancel: (key: string) => void;
+  onRetry: (key: string) => void;
+  onRemove: (key: string) => void;
   onClearFinished: () => void;
   /**
-   * Quien sube por un enlace de invitado NO es el destinatario: el fichero es
-   * para quien le mandó el enlace, y como el cifrado nace en este navegador, la
-   * única copia de la clave está en el enlace de descarga recién generado. Con
-   * esto puesto, cada subida terminada lo dice sin rodeos y hace del copiar la
-   * acción principal — perder ese enlace es perder el fichero, también para
-   * quien lo pidió. Ver kaicorplabs/docs/24, decisión 2.
+   * Whoever uploads through a guest link is NOT the recipient: the file is for
+   * whoever sent the link, and with encryption born in this browser the only
+   * copy of the key is in the download link just produced. In this mode every
+   * finished upload says so plainly and makes copying the main action.
    */
-  modoInvitado?: boolean;
-}) {
+  guestMode?: boolean;
+}
+
+export function UploadQueue({ items, onCancel, onRetry, onRemove, onClearFinished, guestMode = false }: Props) {
+  const now = useNow(1000);
   if (items.length === 0) return null;
 
   const active = items.filter((i) => i.state === "uploading" || i.state === "pending");
-  const totalBytes = items.reduce((sum, i) => sum + i.file.size, 0);
-  const loadedBytes = items.reduce(
-    (sum, i) => sum + (i.state === "done" ? i.file.size : i.loaded),
-    0
-  );
-  const globalPct = totalBytes > 0 ? Math.round((loadedBytes / totalBytes) * 100) : 0;
+  const done = items.filter((i) => i.state === "done");
+  const totalBytes = items.reduce((sum, i) => sum + i.total, 0);
+  const loadedBytes = items.reduce((sum, i) => sum + (i.state === "done" ? i.total : i.loaded), 0);
+  const overall = totalBytes > 0 ? (loadedBytes / totalBytes) * 100 : 0;
+  const moving = items.some((i) => i.state === "uploading");
+  const finished = items.some((i) => i.state !== "uploading" && i.state !== "pending");
 
   return (
-    <section aria-label="Upload queue" className="dd-upload-queue mt-6 space-y-3">
-      {items.length > 1 && (
-        <div className="rounded-xl border border-border bg-card/60 p-3">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-medium">
-              {active.length > 0
-                ? `Uploading ${items.length - active.length + 1} of ${items.length}`
-                : `${items.length} files`}
+    <section aria-label="Upload queue" className="card queue">
+      <div className="queue-head">
+        <div className="queue-head-row">
+          {active.length > 0 ? (
+            <span className="spinner" aria-hidden />
+          ) : (
+            <CircleCheck size={16} aria-hidden style={{ color: "var(--ok-text)" }} />
+          )}
+          <strong>
+            {active.length > 0
+              ? `Uploading ${items.length - active.length + 1} of ${items.length}`
+              : done.length === items.length
+                ? `${plural(done.length, "file")} uploaded`
+                : `${plural(done.length, "file")} uploaded, ${items.length - done.length} not`}
+          </strong>
+          {moving && <span className="muted">· keep this tab open</span>}
+          <span className="num">
+            {formatBytes(loadedBytes)} / {formatBytes(totalBytes)}
+          </span>
+        </div>
+        {items.length > 1 && <Progress value={overall} live={moving} size="sm" label="Overall progress" />}
+      </div>
+
+      <ul className="queue-list" data-many={items.length > 1 || undefined}>
+        {items.map((item) => (
+          <QueueRow
+            key={item.key}
+            item={item}
+            now={now}
+            guestMode={guestMode}
+            onCancel={onCancel}
+            onRetry={onRetry}
+            onRemove={onRemove}
+          />
+        ))}
+      </ul>
+
+      {finished && (
+        <div className="queue-foot">
+          <Button variant="ghost" size="sm" onClick={onClearFinished}>
+            Clear finished
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function QueueRow({
+  item,
+  now,
+  guestMode,
+  onCancel,
+  onRetry,
+  onRemove,
+}: {
+  item: QueueItem;
+  now: number;
+  guestMode: boolean;
+  onCancel: (key: string) => void;
+  onRetry: (key: string) => void;
+  onRemove: (key: string) => void;
+}) {
+  const name = item.file.name;
+  const kind = fileKind(item.file.type, name);
+  const pct = item.state === "done" ? 100 : item.total > 0 ? (item.loaded / item.total) * 100 : 0;
+
+  // Average rate of this attempt: stable, no jitter, and right for a resume
+  // because the bytes that were already there do not count.
+  const elapsed = item.startedAt ? (now - item.startedAt) / 1000 : 0;
+  const rate = elapsed > 2 ? (item.loaded - (item.baseline ?? 0)) / elapsed : 0;
+  const eta = rate > 0 ? (item.total - item.loaded) / rate : NaN;
+
+  return (
+    <li className="qi" data-state={item.state}>
+      <div className="qi-row">
+        <FileIcon kind={kind} size="sm" />
+        <div className="qi-main">
+          <p className="qi-name truncate" title={name}>
+            {name}
+          </p>
+          <p className="qi-status">
+            {item.state === "pending" && <span>Waiting for its turn</span>}
+            {item.state === "uploading" && (
+              <>
+                <span className="num">
+                  {formatBytes(item.loaded)} of {formatBytes(item.total)} · {Math.round(pct)}%
+                </span>
+                {rate > 0 && <span className="num">{formatRate(rate)}</span>}
+                {Number.isFinite(eta) && <span>{formatEta(eta)}</span>}
+                {item.resumed && <span className="ok">resumed</span>}
+              </>
+            )}
+            {item.state === "done" && (
+              <>
+                <span className="num">{formatBytes(item.file.size)}</span>
+                {item.result?.encrypted && (
+                  <span className="ok">
+                    <Lock size={11} aria-hidden style={{ display: "inline", verticalAlign: "-1px", marginRight: 4 }} />
+                    encrypted in your browser
+                  </span>
+                )}
+              </>
+            )}
+            {item.state === "error" && <span className="err">{item.error ?? "Upload failed"}</span>}
+            {item.state === "cancelled" && <span>Cancelled</span>}
+          </p>
+        </div>
+
+        <div className="qi-actions">
+          {(item.state === "uploading" || item.state === "pending") && (
+            <Button variant="ghost" size="icon-sm" aria-label={`Cancel ${name}`} title="Cancel" onClick={() => onCancel(item.key)}>
+              <X />
+            </Button>
+          )}
+          {(item.state === "error" || item.state === "cancelled") && (
+            <>
+              <Button variant="ghost" size="icon-sm" aria-label={`Retry ${name}`} title="Retry" onClick={() => onRetry(item.key)}>
+                <RotateCcw />
+              </Button>
+              <Button variant="ghost" size="icon-sm" aria-label={`Remove ${name} from the list`} title="Remove" onClick={() => onRemove(item.key)}>
+                <X />
+              </Button>
+            </>
+          )}
+          {item.state === "done" && item.result && !guestMode && (
+            <>
+              <ShareButton path={item.result.downloadUrl} title={item.result.originalName} size="icon-sm" />
+              <QrButton path={item.result.downloadUrl} filename={item.result.originalName} size="icon-sm" />
+            </>
+          )}
+          {item.state === "done" && (
+            <span className="qi-done-icon" aria-label="Uploaded" role="img">
+              <Check />
             </span>
-            <span className="tabular-nums text-muted-foreground">
-              {formatBytes(loadedBytes)} / {formatBytes(totalBytes)}
-            </span>
-          </div>
-          <Progress value={globalPct} className="h-2" />
+          )}
+        </div>
+      </div>
+
+      {(item.state === "uploading" || item.state === "pending") && (
+        <Progress value={pct} live={item.state === "uploading"} size="sm" label={`Progress of ${name}`} />
+      )}
+
+      {item.state === "done" && item.result && !guestMode && <LinkBox path={item.result.downloadUrl} />}
+
+      {guestMode && item.state === "done" && item.result && !item.result.encrypted && (
+        <div className="note" data-tone="ok">
+          <p className="note-title">
+            <CircleCheck aria-hidden />
+            Delivered
+          </p>
+          <p>Whoever gave you this link already sees it in their DocDrop and can download it from there. Nothing else to send.</p>
         </div>
       )}
 
-      <ul className="dd-upload-items space-y-2">
-        {items.map((item) => {
-          const pct =
-            item.state === "done"
-              ? 100
-              : item.file.size > 0
-                ? Math.round((item.loaded / item.file.size) * 100)
-                : 0;
-
-          return (
-            <li
-              key={item.key}
-              className="overflow-hidden rounded-xl border border-border/70 bg-card/60 p-3"
-            >
-              <div className="flex items-center gap-3">
-                <span aria-hidden className="text-lg">
-                  {item.state === "done" ? "✅" : fileEmoji(item.file.type, item.file.name)}
-                </span>
-
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium" title={item.file.name}>
-                    {item.file.name}
-                  </p>
-                  <p className="text-xs tabular-nums text-muted-foreground">
-                    {item.state === "pending" && "queued"}
-                    {item.state === "uploading" &&
-                      `${formatBytes(item.loaded)} / ${formatBytes(item.file.size)} · ${pct}%`}
-                    {item.state === "done" && formatBytes(item.file.size)}
-                    {item.state === "error" && (
-                      <span className="text-destructive">{item.error}</span>
-                    )}
-                    {item.state === "cancelled" && "cancelled"}
-                    {item.resumed && item.state === "uploading" && (
-                      <span className="text-success"> · resuming</span>
-                    )}
-                  </p>
-                </div>
-
-                <div className="flex shrink-0 items-center gap-1">
-                  {item.state === "done" && item.result && !modoInvitado && (
-                    <>
-                      <ShareButton
-                        path={item.result.downloadUrl}
-                        title={item.result.originalName}
-                      />
-                      <CopyLinkButton
-                        path={item.result.downloadUrl}
-                        variant="ghost"
-                        className="size-9"
-                      />
-                    </>
-                  )}
-                  {(item.state === "uploading" || item.state === "pending") && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-9"
-                      aria-label={`Cancel ${item.file.name}`}
-                      onClick={() => onCancel(item.key)}
-                    >
-                      {item.state === "uploading" ? (
-                        <X className="size-4" aria-hidden />
-                      ) : (
-                        <Loader2 className="size-4 animate-spin opacity-40" aria-hidden />
-                      )}
-                    </Button>
-                  )}
-                  {item.state === "done" && (
-                    <CheckCircle2 className="size-4 text-success" aria-hidden />
-                  )}
-                </div>
-              </div>
-
-              {(item.state === "uploading" || item.state === "pending") && (
-                <Progress value={pct} className="mt-2 h-1" />
-              )}
-
-              {modoInvitado && item.state === "done" && item.result && !item.result.encrypted && (
-                <p className="mt-3 rounded-xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-                  Uploaded. Whoever gave you this link already sees it in their DocDrop and
-                  can download it from there — nothing else to send.
-                </p>
-              )}
-
-              {modoInvitado && item.state === "done" && item.result && item.result.encrypted && (
-                /* La pantalla que docs/24 exige que sea imposible de ignorar:
-                   este enlace ES el fichero. El servidor guarda un bulto que no
-                   puede abrir, y la única clave está aquí, en este navegador,
-                   dentro de este enlace. Sin mandárselo a quien lo pidió, ni
-                   esa persona ni nadie podrá leerlo jamás. */
-                <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
-                  <p className="text-sm font-medium">
-                    Encrypted — only this link can open it
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Send this link back to whoever asked for the file. It was
-                    encrypted in your browser and this link holds the only key:
-                    without it, not even they can read what you just uploaded.
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded-lg bg-background/60 px-2 py-1.5 font-mono text-xs">
-                      {`${typeof window !== "undefined" ? window.location.origin : ""}${item.result.downloadUrl}`}
-                    </code>
-                    <CopyLinkButton
-                      path={item.result.downloadUrl}
-                      label="Copy link"
-                      className="shrink-0"
-                    />
-                  </div>
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-
-      {items.some((i) => i.state !== "uploading" && i.state !== "pending") && (
-        <button
-          onClick={onClearFinished}
-          className="w-full text-center text-xs text-muted-foreground hover:text-foreground"
-        >
-Clear finished
-        </button>
+      {guestMode && item.state === "done" && item.result && item.result.encrypted && (
+        /* The screen that must be impossible to ignore: this link IS the file.
+           The server keeps a bundle it cannot open, and the only key is here,
+           in this browser, inside this link. */
+        <div className="note" data-tone="ice">
+          <p className="note-title">
+            <KeyRound aria-hidden />
+            Send this link back — it is the only key
+          </p>
+          <p>
+            The file was encrypted in your browser before it left. Whoever asked for it cannot open it without this
+            link, and neither can the server. Copy it and send it to them.
+          </p>
+          <LinkBox path={item.result.downloadUrl} />
+        </div>
       )}
-    </section>
+    </li>
   );
 }

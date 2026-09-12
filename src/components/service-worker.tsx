@@ -1,14 +1,10 @@
-"use client";
-
 import { useEffect } from "react";
 
 /**
- * Registers the service worker, required for the phone to offer installing the app
- * and for receiving files from the "Share" menu.
- *
- * Browsers only allow this in secure contexts: HTTPS or localhost. Over plain HTTP
- * on a local IP it will not register, and the app keeps working the same except for
- * installation.
+ * Registers the service worker: what lets a phone install the app, receive
+ * files from its "Share" menu, and stream decrypted downloads straight to disk.
+ * Browsers only allow it in secure contexts (HTTPS or localhost); elsewhere the
+ * app works the same minus those three things.
  */
 export function ServiceWorkerRegistration() {
   useEffect(() => {
@@ -17,6 +13,5 @@ export function ServiceWorkerRegistration() {
       console.warn("[docdrop] could not register the service worker:", error);
     });
   }, []);
-
   return null;
 }

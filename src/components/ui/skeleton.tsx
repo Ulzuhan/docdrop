@@ -1,13 +1,6 @@
-import { cn } from "@/lib/utils"
+import type { CSSProperties } from "react";
+import { cx } from "@/lib/cx";
 
-function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="skeleton"
-      className={cn("animate-pulse rounded-md bg-muted", className)}
-      {...props}
-    />
-  )
+export function Skeleton({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <div className={cx("skeleton", className)} style={style} aria-hidden />;
 }
-
-export { Skeleton }

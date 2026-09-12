@@ -2,12 +2,10 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
-// Go owns HTML and routing. Vite compiles browser assets; no Node server is shipped.
+// Go owns HTML and routing. Vite compiles browser assets; no Node server is
+// shipped. What the page needs from the deployment (enrol URL, footer links)
+// arrives as data attributes on `#app`, put there by Go at request time.
 export default defineConfig({
-  define: {
-    "process.env.KAICORP_FOOTER_LINKS": "document.getElementById('app')?.dataset.footerLinks",
-    "process.env.DOCDROP_ENROLL_URL": "document.getElementById('app')?.dataset.enrollUrl",
-  },
   publicDir: "public",
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   plugins: [{

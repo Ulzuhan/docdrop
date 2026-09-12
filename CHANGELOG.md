@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **The interface, rebuilt from scratch.** Same four screens, same routes and
+  the same encryption and resumable transport underneath; everything visible
+  is new. A hand-written design system replaces Tailwind, shadcn/ui, Base UI,
+  next-themes and sonner: design tokens with a real light theme, an ember
+  accent for what expires and an ice accent for what is encrypted, native
+  `<dialog>` modals, a home-grown toast and theme store. The dashboard gets a
+  window-wide drop target, paste-to-upload, per-upload speed and time left,
+  retry for failed items, a remaining-life ring on every file, a floating
+  selection bar for ZIPs and a confirmation before deleting. The download page
+  shows decryption progress and the recipient of a guest link is told, in one
+  place, that the link is the only key. The PWA icons follow the new mark.
+
 ## 3.0.1 — 2026-09-10
 
 - The start-up line no longer names a specific identity provider: it says

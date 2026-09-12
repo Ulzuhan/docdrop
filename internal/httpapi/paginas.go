@@ -159,7 +159,7 @@ func (s *Server) manifiesto(w http.ResponseWriter, r *http.Request) {
 	texto(w, "application/manifest+json", manifiestoJSON)
 }
 
-const manifiestoJSON = `{"name":"DocDrop — Share files","short_name":"DocDrop","description":"Upload a file, share the link. It self-destructs.","start_url":"/","scope":"/","display":"standalone","orientation":"portrait-primary","background_color":"#16161f","theme_color":"#16161f","categories":["utilities","productivity"],"icons":[{"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},{"src":"/icons/icon-maskable-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}],"share_target":{"action":"/share","method":"POST","enctype":"multipart/form-data","params":{"files":[{"name":"file","accept":["*/*"]}]}}}`
+const manifiestoJSON = `{"name":"DocDrop — Share files","short_name":"DocDrop","description":"Upload a file, share the link. It self-destructs.","start_url":"/","scope":"/","display":"standalone","orientation":"portrait-primary","background_color":"#0b0d14","theme_color":"#0b0d14","categories":["utilities","productivity"],"icons":[{"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},{"src":"/icons/icon-maskable-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}],"share_target":{"action":"/share","method":"POST","enctype":"multipart/form-data","params":{"files":[{"name":"file","accept":["*/*"]}]}}}`
 
 func texto(w http.ResponseWriter, tipo, cuerpo string) {
 	w.Header().Set("Content-Type", tipo)
@@ -197,12 +197,12 @@ func (s *Server) estaticoO404(w http.ResponseWriter, r *http.Request) {
 // —defaultTheme "dark", sistema si está guardado "system"—, así que cuando
 // React arranca ya coincide y no repinta.
 var plantilla = template.Must(template.New("doc").Parse(
-	`<!doctype html><html lang="en" class="antialiased"><head>
+	`<!doctype html><html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <script nonce="{{.Nonce}}">try{var t=localStorage.getItem("theme")||"dark";if(t==="system"){t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}document.documentElement.classList.add(t);document.documentElement.style.colorScheme=t}catch(e){document.documentElement.classList.add("dark")}</script>
-<meta name="theme-color" content="#fbfbfe" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#16161f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0d14" media="(prefers-color-scheme: dark)">
 <title>{{.Titulo}}</title>
 <meta name="description" content="{{.Descripcion}}">
 {{if .NoIndex}}<meta name="robots" content="noindex, nofollow">
@@ -224,7 +224,7 @@ var plantilla = template.Must(template.New("doc").Parse(
 <link rel="preload" href="/kaicorp-mark.png" as="image">
 {{range .CSS}}<link rel="stylesheet" href="{{.}}">
 {{end}}</head>
-<body class="min-h-dvh flex flex-col">
+<body>
 <div id="app" data-page="{{.Pagina}}"{{if .Email}} data-email="{{.Email}}"{{end}}{{if .FicheroID}} data-file-id="{{.FicheroID}}"{{end}}{{if .TokenInvitado}} data-guest-token="{{.TokenInvitado}}"{{end}}{{if .CuentaURL}} data-account-url="{{.CuentaURL}}"{{end}}{{if .AltaURL}} data-enroll-url="{{.AltaURL}}"{{end}}{{if .Footer}} data-footer-links="on"{{end}}></div>
 {{if .JS}}<script type="module" nonce="{{.Nonce}}" src="{{.JS}}"></script>{{end}}
 </body></html>

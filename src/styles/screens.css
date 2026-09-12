@@ -1,0 +1,434 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Screen layouts: landing, dashboard, guest and download.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Dashboard ──────────────────────────────────────────────────────── */
+.dash {
+  padding-top: 28px;
+}
+@media (min-width: 720px) {
+  .dash {
+    padding-top: 40px;
+  }
+}
+.dash-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 24px;
+  margin-bottom: 22px;
+}
+.dash-head h1 {
+  font-size: clamp(1.7rem, 3.2vw, 2.3rem);
+}
+.dash-head p {
+  margin-top: 4px;
+  font-size: 14.5px;
+  color: var(--text-2);
+}
+.dash-head .tools {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.dash-grid {
+  display: grid;
+  gap: 14px;
+  align-items: stretch;
+}
+@media (min-width: 900px) {
+  .dash-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr);
+  }
+}
+.dash-queue {
+  margin-top: 14px;
+}
+.dash-files {
+  margin-top: 44px;
+}
+
+/* Upload options panel. */
+.opts {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 20px;
+}
+.opts-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.opts-summary .badge {
+  height: 22px;
+  font-size: 11.5px;
+}
+
+/* ── Guest ──────────────────────────────────────────────────────────── */
+.guest {
+  padding-top: 32px;
+}
+@media (min-width: 720px) {
+  .guest {
+    padding-top: 56px;
+  }
+}
+.guest-head {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.guest-head h1 {
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+}
+.guest-head p {
+  max-width: 34rem;
+  margin: 8px auto 0;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.guest-opts {
+  margin-top: 14px;
+  padding: 16px 18px;
+}
+.guest-live {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* State cards (invalid link, expired file, not found). */
+.state {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 40px 28px;
+  text-align: center;
+}
+.state h1 {
+  font-size: 1.5rem;
+}
+.state p {
+  max-width: 28rem;
+  font-size: 14.5px;
+  color: var(--text-2);
+}
+.state .fi {
+  margin-bottom: 6px;
+}
+.state .btn {
+  margin-top: 10px;
+}
+
+/* ── Download ───────────────────────────────────────────────────────── */
+.dl {
+  display: grid;
+  gap: 18px;
+  padding: 32px 0 24px;
+}
+@media (min-width: 720px) {
+  .dl {
+    padding-top: 56px;
+  }
+}
+.dl-hero {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.dl-hero h1 {
+  font-size: clamp(1.45rem, 3.5vw, 1.9rem);
+  overflow-wrap: anywhere;
+}
+.dl-hero .sub {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.dl-hero .sub .size {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+}
+.dl-actions {
+  display: flex;
+  gap: 8px;
+}
+.dl-actions .btn-lg {
+  flex: 1;
+}
+.dl-fine {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.dl-progress {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.dl-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.dl-progress-row .num {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dl-back {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.dl-back a {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: var(--line-2);
+}
+.dl-back a:hover {
+  color: var(--text);
+}
+
+/* ── Landing ────────────────────────────────────────────────────────── */
+.land-hero {
+  position: relative;
+  padding: clamp(48px, 9vw, 112px) 0 clamp(40px, 7vw, 88px);
+}
+.land-hero-grid {
+  display: grid;
+  gap: 40px;
+  align-items: center;
+}
+@media (min-width: 960px) {
+  .land-hero-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: 56px;
+  }
+}
+.land-copy {
+  display: grid;
+  gap: 22px;
+  justify-items: start;
+}
+.land-h1 {
+  font-size: clamp(2.6rem, 6.4vw, 4.9rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  max-width: 11ch;
+}
+.land-lede {
+  max-width: 34rem;
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  line-height: 1.6;
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+.land-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.land-fine {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.land-fine a {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-2);
+}
+
+/* The live demo card. */
+.demo-wrap {
+  position: relative;
+  max-width: 30rem;
+  margin-inline: auto;
+  width: 100%;
+}
+.demo-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  z-index: -1;
+  border-radius: 50%;
+  background:
+    radial-gradient(50% 50% at 40% 40%, var(--accent-soft-2), transparent 70%),
+    radial-gradient(40% 40% at 70% 70%, var(--ice-soft), transparent 70%);
+  filter: blur(30px);
+}
+.demo {
+  overflow: hidden;
+  animation: rise var(--t-slow) var(--ease) both;
+}
+.demo-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+}
+.demo-top .gauge {
+  margin-left: auto;
+}
+.demo-rows > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.demo-rows .name {
+  font-size: 14px;
+  font-weight: 500;
+}
+.demo-rows .sub {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.demo-rows .pct {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent-text);
+}
+.demo-foot {
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px;
+  background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.demo-foot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.demo-foot-row .num {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+.demo-linked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.demo-linked > svg {
+  width: 13px;
+  height: 13px;
+}
+
+.land-section {
+  padding: clamp(40px, 6vw, 72px) 0;
+}
+.land-section-head {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 28px;
+  max-width: 40rem;
+}
+.land-section-head h2 {
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+}
+.land-section-head p {
+  font-size: 15px;
+  color: var(--text-2);
+}
+.land-close {
+  padding: clamp(40px, 7vw, 96px) 0;
+  text-align: center;
+}
+.land-close-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: clamp(36px, 6vw, 64px) 24px;
+  overflow: hidden;
+}
+.land-close-card::before {
+  content: "";
+  position: absolute;
+  inset: auto -20% -60% -20%;
+  height: 80%;
+  background: radial-gradient(50% 60% at 50% 100%, var(--accent-soft-2), transparent 70%);
+  pointer-events: none;
+}
+.land-close-card h2 {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+}
+.land-close-card p {
+  max-width: 36rem;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.land-close-card > * {
+  position: relative;
+}
+
+/* Floating drops in the hero background. */
+.drops {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.drops > span {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.55;
+  animation: float 9s ease-in-out infinite;
+}
+.drops > span:nth-child(1) {
+  left: -60px;
+  top: 10%;
+  background: var(--accent-soft-2);
+}
+.drops > span:nth-child(2) {
+  right: 5%;
+  top: -40px;
+  width: 300px;
+  height: 300px;
+  background: var(--ice-soft);
+  animation-delay: -3s;
+}
+.drops > span:nth-child(3) {
+  right: 30%;
+  bottom: -80px;
+  background: var(--accent-soft);
+  animation-delay: -6s;
+}

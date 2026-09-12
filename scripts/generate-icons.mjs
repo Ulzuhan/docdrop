@@ -62,8 +62,11 @@ function encodePng(width, height, rgba) {
 }
 
 // ─── Drawing ─────────────────────────────────────────────────────────
-const VIOLET_TOP = [124, 92, 255];
-const VIOLET_BOTTOM = [83, 55, 214];
+// The DocDrop mark: a drop landing on a line, white over the ember gradient
+// the interface uses for everything that expires. Same shape as `Mark` in
+// src/components/brand.tsx, rasterised here.
+const EMBER_TOP = [248, 170, 60];
+const EMBER_BOTTOM = [226, 90, 32];
 
 function mix(a, b, t) {
   return [
@@ -81,38 +84,54 @@ function roundedRectSdf(px, py, cx, cy, halfW, halfH, radius) {
   return outside + Math.min(Math.max(dx, dy), 0) - radius;
 }
 
+/** Signed distance to a convex triangle: negative inside. */
+function triangleSdf(px, py, a, b, c) {
+  const cx = (a[0] + b[0] + c[0]) / 3;
+  const cy = (a[1] + b[1] + c[1]) / 3;
+  let worst = -Infinity;
+  for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+    const ex = q[0] - p[0];
+    const ey = q[1] - p[1];
+    const len = Math.hypot(ex, ey);
+    // Distance to the edge line, signed so the centroid is inside.
+    const side = (ex * (py - p[1]) - ey * (px - p[0])) / len;
+    const centroidSide = (ex * (cy - p[1]) - ey * (cx - p[0])) / len;
+    worst = Math.max(worst, centroidSide < 0 ? side : -side);
+  }
+  return worst;
+}
+
 /**
- * Up-arrow silhouette over a base: "upload a file".
- * Coordinates are normalised to the canvas so it scales to any size.
+ * Drop-on-a-line silhouette. Coordinates are normalised to the canvas so it
+ * scales to any size.
  */
-function arrowAlpha(x, y, size, scale) {
+function markSdf(x, y, size, scale) {
   const c = size / 2;
   const u = size * scale; // design unit
 
-  // Vertical shaft
-  const shaft = roundedRectSdf(x, y, c, c - u * 0.06, u * 0.11, u * 0.34, u * 0.1);
+  // The drop: a circle and the triangle that reaches up to the apex, joined
+  // at the tangent points.
+  const cx = c;
+  const cy = c + u * 0.08;
+  const r = u * 0.3;
+  const circle = Math.hypot(x - cx, y - cy) - r;
+  const apex = [c, c - u * 0.52];
+  const d = cy - apex[1];
+  const theta = Math.acos(r / d);
+  const t1 = [cx + r * Math.sin(theta), cy - r * Math.cos(theta)];
+  const t2 = [cx - r * Math.sin(theta), cy - r * Math.cos(theta)];
+  const cone = triangleSdf(x, y, apex, t1, t2);
 
-  // Triangular head
-  const tipY = c - u * 0.52;
-  const halfSpan = u * 0.34;
-  const height = u * 0.3;
-  const t = (y - tipY) / height;
-  let tri = 1;
-  if (t >= 0 && t <= 1) {
-    const spanAtY = halfSpan * t;
-    tri = Math.abs(x - c) - spanAtY;
-  }
+  // The line it lands on.
+  const tray = roundedRectSdf(x, y, c, c + u * 0.54, u * 0.3, u * 0.05, u * 0.05);
 
-  // Horizontal base (the "tray")
-  const base = roundedRectSdf(x, y, c, c + u * 0.46, u * 0.42, u * 0.1, u * 0.09);
-
-  return Math.min(shaft, tri, base);
+  return Math.min(circle, cone, tray);
 }
 
 function renderIcon(size, { maskable = false } = {}) {
   const rgba = Buffer.alloc(size * size * 4);
   // The maskable icon leaves margin: launchers crop up to 20% of the edge.
-  const symbolScale = maskable ? 0.42 : 0.56;
+  const symbolScale = maskable ? 0.44 : 0.58;
   const radius = maskable ? size / 2 : size * 0.22;
   const SS = 3; // supersampling to smooth the edges
 
@@ -130,7 +149,7 @@ function renderIcon(size, { maskable = false } = {}) {
             ? Math.hypot(px - size / 2, py - size / 2) - size / 2
             : roundedRectSdf(px, py, size / 2, size / 2, size / 2, size / 2, radius);
           if (bg <= 0) bgCover++;
-          if (arrowAlpha(px, py, size, symbolScale) <= 0) symCover++;
+          if (markSdf(px, py, size, symbolScale) <= 0) symCover++;
         }
       }
 
@@ -138,7 +157,8 @@ function renderIcon(size, { maskable = false } = {}) {
       const bgAlpha = bgCover / total;
       const symAlpha = symCover / total;
 
-      const [r, g, b] = mix(VIOLET_TOP, VIOLET_BOTTOM, y / size);
+      // Diagonal gradient, lighter at the top left.
+      const [r, g, b] = mix(EMBER_TOP, EMBER_BOTTOM, (x + y) / (2 * size));
       const i = (y * size + x) * 4;
       // The symbol is white over the gradient.
       rgba[i] = Math.round(r + (255 - r) * symAlpha);
