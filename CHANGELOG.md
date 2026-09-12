@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.1.0 — 2026-09-12
 
 - **The interface, rebuilt from scratch.** Same four screens, same routes and
   the same encryption and resumable transport underneath; everything visible
@@ -13,6 +13,11 @@
   selection bar for ZIPs and a confirmation before deleting. The download page
   shows decryption progress and the recipient of a guest link is told, in one
   place, that the link is the only key. The PWA icons follow the new mark.
+- SECURITY.md states the policy: the download link is a capability and the
+  file under it is encrypted in the browser; what is and is not promised follows
+  from those two facts.
+- js-yaml 4.3.2 closes the one open dependency alert. It is build tooling and
+  never reaches the image.
 
 ## 3.0.1 — 2026-09-10
 

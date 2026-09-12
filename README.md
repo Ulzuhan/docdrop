@@ -54,7 +54,7 @@ For standalone Docker, pass the same configuration explicitly:
 ```bash
 docker run -d --name docdrop --env-file .env \
   -p 127.0.0.1:3010:3010 -v docdrop-data:/data \
-  ghcr.io/ulzuhan/docdrop:3.0.0
+  ghcr.io/ulzuhan/docdrop:3.1.0
 ```
 
 Pin a verified image digest for production. `:latest` follows releases;
