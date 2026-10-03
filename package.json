@@ -47,8 +47,8 @@
   "dependencies": {
     "lucide-react": "^1.28.0",
     "qrcode": "^1.5.4",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -61,13 +61,14 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^5",
     "typescript-eslint": "^8.59.4",
-    "vite": "8.2.2",
+    "vite": "8.3.2",
     "vitest": "^4.1.11"
   },
   "overrides": {
     "postcss": "^8.5.18",
-    "nanoid": "3.3.18",
-    "js-yaml": "^4.3.1",
-    "brace-expansion": "^2.0.2"
+    "nanoid": "3.3.19",
+    "js-yaml": "^4.3.2",
+    "brace-expansion@^1.1.7": "^1.1.21",
+    "brace-expansion@^5.0.8": "^5.0.12"
   }
 }
