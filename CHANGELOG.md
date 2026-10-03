@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.1.1 — 2026-10-03
+
+- Publish the exact linux/amd64 OCI artifact only after the release tag's
+  functional CI and Trivy gate pass. Preserve its digest through transfer,
+  signing and promotion; main and PR builds remain CI artifacts.
+- Exercise both published rollback images (Node 2.3.1 and Go 3.1.0) against
+  the candidate runtime and current synthetic stores, without restoring spent
+  counters. Include HTTP, browser, backchannel and runtime checks before publish.
+- Refresh compatible frontend/build/test dependencies, including Node 24,
+  ESLint 10 and Vitest 5. The Go HTTP and storage contracts remain unchanged.
+
 ## 3.1.0 — 2026-09-12
 
 - **The interface, rebuilt from scratch.** Same four screens, same routes and

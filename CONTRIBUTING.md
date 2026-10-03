@@ -42,7 +42,7 @@ service is an architectural decision, not an incidental dependency update.
 
 ## Publication is separate from deployment
 
-A push to main publishes a development image automatically. Version tags publish
-releases. Neither updates production, which must pin a verified digest. Review
+A push to main runs CI and retains a tested OCI artifact. Stable version tags
+publish releases after all gates pass. Neither updates production, which must pin a verified digest. Review
 [DEPLOYMENT.md](DEPLOYMENT.md) before changing runtime commands or data handling.
 Never restore spent download counters as part of a rollback.

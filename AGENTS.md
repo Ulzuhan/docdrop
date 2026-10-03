@@ -12,5 +12,6 @@ embedded in internal/web/dist. Node is a build/test dependency, never a server.
 - Run npm run lint, npm run typecheck, npm test, browser and compatibility suites
   for relevant changes. Build assets before building a distributable binary.
 - Never use production stores or sessions for tests. Preserve unrelated changes.
-- Publishing, deploying and git push require authorization: push to main publishes.
+- Publishing, deploying and git push require authorization. Main runs CI;
+  stable version tags publish the tested image after all release gates pass.
 - Roll back using the current store, never by restoring spent download counters.
