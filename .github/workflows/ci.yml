@@ -139,6 +139,66 @@ jobs:
           tar -C "$RUNNER_TEMP/transfer" -xf "$RUNNER_TEMP/transfer/docdrop-oci.tar"
           python3 scripts/oci-release.py verify --layout "$RUNNER_TEMP/transfer/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA"
 
+  compose-pilot:
+    needs: imagen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Reviewed pilot code at an immutable revision; no production host/CLI.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Ulzuhan/kaicorplabs-infra
+          ref: f4155671b3ecdc6c44b3af80bf0809605a15f3cc
+          path: pilot-infra
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: docdrop-oci-${{ github.run_id }}
+          path: ${{ runner.temp }}/compose-transfer
+      - name: Reverify and load the exact scanned OCI runtime
+        id: runtime
+        env:
+          DIGEST: ${{ needs.imagen.outputs.digest }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y skopeo
+          tar -C "$RUNNER_TEMP/compose-transfer" -xf "$RUNNER_TEMP/compose-transfer/docdrop-oci.tar"
+          image_id=$(python3 scripts/oci-release.py load --layout "$RUNNER_TEMP/compose-transfer/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA")
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+      - name: Verify the existing public rollback attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify oci://ghcr.io/ulzuhan/docdrop@sha256:3d6842182751552f24668cf280c0e553bf3b8cd9d798588cdac88906f6c22378 \
+            --repo Ulzuhan/docdrop --signer-workflow Ulzuhan/docdrop/.github/workflows/docker.yml \
+            --source-digest fe113b44a19ce9f85bb3c9fb724c4f8d949f5622 --source-ref refs/tags/v3.1.0 \
+            --deny-self-hosted-runners --format json > "$RUNNER_TEMP/compose-baseline-attestation.json"
+      - name: Real Compose update, rollback, locks and interrupted recovery with synthetic data
+        env:
+          DIGEST: ${{ needs.imagen.outputs.digest }}
+          CANDIDATE_ID: ${{ steps.runtime.outputs.image_id }}
+        run: |
+          python3 pilot-infra/tools/tests/docdrop-compose-integration.py \
+            --candidate-id "$CANDIDATE_ID" --digest "$DIGEST" --source "$GITHUB_SHA" \
+            --layout "$RUNNER_TEMP/compose-transfer/docdrop.oci" \
+            --oci-helper "$GITHUB_WORKSPACE/scripts/oci-release.py" \
+            --report "$RUNNER_TEMP/compose-report.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: docdrop-compose-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/compose-report.json
+            ${{ runner.temp }}/compose-baseline-attestation.json
+          if-no-files-found: warn
+          retention-days: 7
+
   compatibilidad:
     runs-on: ubuntu-latest
     permissions:
