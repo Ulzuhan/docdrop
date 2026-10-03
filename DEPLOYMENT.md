@@ -95,6 +95,14 @@ los labels de revisión y contrato del almacén. No contiene credenciales,
 contacto con el miniPC, SSH, timers ni despliegue. Su compañero es el
 [draft de infraestructura #38](https://github.com/Ulzuhan/kaicorplabs-infra/pull/38).
 
+El ensayo Compose se ejecuta explícitamente en el repositorio privado de
+infraestructura, con el artefacto OCI de un run de CI terminado en success,
+su digest y revisión exactos. No se copia código privado al repositorio público
+ni se añaden credenciales para checkout entre repositorios. El harness usa
+proyectos, redes internas y volúmenes sintéticos exclusivos del runner Ubuntu
+x86_64. La admisión de la candidata es una fixture declarada: no sustituye la
+firma de una futura release ni autoriza un despliegue en el host.
+
 ## Vuelta atrás
 
 El retorno histórico es la imagen publicada de Node **2.3.1**, fijada por digest:
