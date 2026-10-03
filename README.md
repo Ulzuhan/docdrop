@@ -57,8 +57,8 @@ docker run -d --name docdrop --env-file .env \
   ghcr.io/ulzuhan/docdrop:3.1.0
 ```
 
-Pin a verified image digest for production. `:latest` follows releases;
-`:main` follows development and is not a release. See
+Pin a verified image digest for production. `:latest` follows approved releases;
+development builds are tested OCI artifacts in CI. See
 [deployment and rollback](DEPLOYMENT.md) for proxy requirements, update procedure
 and the no-payload-backup policy.
 

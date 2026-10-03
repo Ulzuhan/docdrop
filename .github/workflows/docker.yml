@@ -1,176 +1,73 @@
 name: Publish container image
 
-# Publishes to GitHub Container Registry. GHCR needs no extra secrets: the token
-# GitHub injects into the job is enough, provided packages: write is granted below.
-#
-# Which tags each event owns, and why they no longer overlap:
-#
-#   push to main   :main and :sha-<short>   — what is not released yet
-#   push tag v*    :<version>, :<major>.<minor>, :<major> and :latest   — a release
-#
-# A branch push and a tag push are two separate runs, so they are two independent
-# builds of the same source. While both of them minted :latest and :sha-<short>,
-# releasing (push main, push the tag seconds later) left :latest and :1.0.1 on
-# DIFFERENT digests of the same commit — there was no way to tell by digest that
-# latest was the release — and both runs raced to write :sha-<short>, where the
-# slower one won.
-#
-# Now the release build is the only one that mints :latest, and it is the same
-# build that mints the semver ladder, so they are the same digest by construction.
-# Pushing to main still publishes an image to try out; it just cannot claim to be
-# the release any more.
+# A release calls the functional CI at this exact tag/commit. Its one OCI
+# artifact is tested and scanned before the publisher receives write permissions.
+# Branches, PRs and manual runs can never publish or promote an image.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
+permissions:
+  contents: read
+  packages: read
+concurrency:
+  group: docdrop-publication
+  cancel-in-progress: false
 jobs:
-  build:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      packages: read
+
+  publish:
+    needs: ci
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'Ulzuhan/docdrop'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
-      # Sin `id-token: write` no se puede firmar por OIDC contra Sigstore, y sin
-      # `attestations: write` no se puede guardar la attestation firmada. Los
-      # dos son el motivo de que hasta ahora no hubiera firma: no es que
-      # fallara, es que no se pedía el permiso.
       id-token: write
       attestations: write
-
+    env:
+      DIGEST: ${{ needs.ci.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # QEMU is what allows building the arm64 image on an amd64 runner, so the
-      # image also runs on a Raspberry Pi or an ARM server. Note: the arm64 build has
-      # not been run locally (that needs binfmt handlers registered on the host), so
-      # the first run of this workflow is what actually proves it.
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: docdrop-oci-${{ github.run_id }}
+          path: ${{ runner.temp }}/transfer
+      - name: Verify the gated layout after transfer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y skopeo
+          tar -C "$RUNNER_TEMP/transfer" -xf "$RUNNER_TEMP/transfer/docdrop-oci.tar"
+          python3 scripts/oci-release.py verify --layout "$RUNNER_TEMP/transfer/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA"
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=ref,event=branch
-            type=sha,format=short,enable=${{ !startsWith(github.ref, 'refs/tags/v') }}
-
-      - id: build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          # Publish the native amd64 target. Add native runners before supporting
-          # another architecture; do not silently switch to emulated builds.
-          platforms: linux/amd64
-          push: true
-          # Metadatos de procedencia y SBOM que genera BuildKit y sube al
-          # registro junto a la imagen.
-          #
-          # OJO CON LO QUE ESTO ES Y NO ES, porque aquí ponía que eran
-          # «verificables con gh attestation verify» y es falso: BuildKit los
-          # escribe como declaraciones in-toto EN CLARO, sin firma. Cubren la
-          # integridad —el digest del índice los encadena— pero no el origen:
-          # cualquiera con escritura en el paquete podría publicar una
-          # procedencia inventada. Lo que sí firma es el paso de attestation de
-          # más abajo, y eso es lo que verifica `gh attestation verify`.
-          provenance: mode=max
-          sbom: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Layer cache in the registry, so later builds do not reinstall
-          # dependencies from scratch.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          # Una release nunca reutiliza la capa de `apk upgrade` de ayer. El
-          # Dockerfile la ejecuta, pero si la caché devuelve la de un build
-          # viejo el upgrade no llega a correr y la imagen sale con los paquetes
-          # de aquel día — le pasó a PixelForge el 02-09 con libexpat1 y a TabUp
-          # el 14-09 con libpcre2, las dos veces detectado por el escaneo semanal
-          # y no por la puerta del release. Base Alpine. En main la caché sigue
-          # valiendo; en un tag se construye de cero, que es lo que se ancla.
-          no-cache: ${{ startsWith(github.ref, 'refs/tags/') }}
-
-      # Un nombre de imagen tiene que ir en minúsculas y github.repository
-      # conserva la U del usuario; metadata-action ya lo normaliza para los
-      # tags, esto lo normaliza para el escáner.
-      - id: ref
-        run: echo "ref=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
-      # LA FIRMA. Lo de arriba son metadatos; esto es lo que dice QUIÉN los hizo.
-      #
-      # Firma con la identidad OIDC de esta ejecución contra Sigstore: no hay
-      # clave privada que guardar, rotar ni perder. La attestation queda en el
-      # almacén de GitHub y, con `push-to-registry`, también junto a la imagen
-      # en GHCR.
+          password: ${{ github.token }}
+      - name: Copy the gated bytes to a unique candidate tag
+        run: python3 scripts/oci-release.py candidate --layout "$RUNNER_TEMP/transfer/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA"
+      # BuildKit provenance/SBOM stay inside the identical OCI index. This
+      # additional GitHub attestation is signed with this workflow's OIDC identity.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ steps.ref.outputs.ref }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: ghcr.io/ulzuhan/docdrop
+          subject-digest: ${{ env.DIGEST }}
           push-to-registry: true
-
-      # Y la puerta: se verifica lo que se acaba de firmar, aquí mismo. Un
-      # release cuya firma no verifique se queda en rojo, y un rojo no se ancla
-      # en producción.
-      #
-      # Qué impone cada bandera, que no es lo mismo y conviene no confundirlo
-      # (comprobado en el código del CLI, pkg/cmd/attestation/verify/policy.go):
-      #
-      #   --repo            acota la búsqueda de attestations Y exige que la
-      #                     extensión SourceRepositoryURI del certificado sea
-      #                     este repositorio. Ya por sí solo descarta una
-      #                     attestation de otro sitio.
-      #   --signer-workflow ESTRECHA la identidad del firmante de «cualquier
-      #                     workflow de este repositorio» a ESTE fichero. Es lo
-      #                     que importa el día que haya más de un workflow con
-      #                     permiso de firmar.
-      #   --source-digest   exige que el commit del que se construyó sea éste.
-      #   --source-ref      exige que la referencia sea ésta: sin ella, una
-      #                     attestation legítima de otra rama o de otra etiqueta
-      #                     del mismo repositorio pasaría.
-      #
-      # Las dos últimas son las que atan el artefacto a lo que se cree estar
-      # publicando, y no sólo a quién lo publicó.
-      - name: Verificar la firma de lo recién publicado
-        run: |
-          gh attestation verify \
-            "oci://${REGISTRY}/${IMAGEN}@${DIGEST}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/docker.yml" \
-            --source-digest "${GITHUB_SHA}" \
-            --source-ref "${GITHUB_REF}"
+      - name: Verify the signed subject, source and tag before promotion
         env:
           GH_TOKEN: ${{ github.token }}
-          REGISTRY: ${{ env.REGISTRY }}
-          IMAGEN: ${{ steps.ref.outputs.ref }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-
-      # La puerta: la imagen recién publicada, escaneada capa a capa (SO base,
-      # npm y pip incluidos) contra las bases de CVEs, y el workflow en ROJO si
-      # hay altas o críticas CON arreglo disponible. Se escanea tras publicar y
-      # no antes a propósito: el exportador local no admite las attestations, y
-      # en este flujo nada se despliega sin mirar el workflow — un release en
-      # rojo no se ancla en producción. ignore-unfixed porque sin parche no hay
-      # acción posible, y un rojo permanente solo enseña a ignorar el color.
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ steps.ref.outputs.ref }}@${{ steps.build.outputs.digest }}
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: 1
-        env:
-          TRIVY_TIMEOUT: 20m
+        run: |
+          gh attestation verify "oci://ghcr.io/ulzuhan/docdrop@$DIGEST" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/docker.yml" \
+            --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" \
+            --deny-self-hosted-runners
+      - name: Promote the same digest to release tags, never rebuild
+        run: python3 scripts/oci-release.py promote --layout "$RUNNER_TEMP/transfer/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA"

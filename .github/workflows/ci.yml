@@ -14,6 +14,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    outputs:
+      digest:
+        description: Exact tested and scanned OCI index
+        value: ${{ jobs.imagen.outputs.digest }}
 
 jobs:
   checks:
@@ -29,6 +34,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run build:web
       - run: npm run test:unit
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - name: A release tag must match the package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: test "${GITHUB_REF#refs/tags/v}" = "$(node -p 'require("./package.json").version')"
 
   go:
     runs-on: ubuntu-latest
@@ -86,50 +95,49 @@ jobs:
 
   imagen:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      digest: ${{ steps.artifact.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
-
       - run: npm ci
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: artifact
+        uses: ./.github/actions/verified-oci
 
-      # La imagen se construye entera aquí dentro: los assets salen de su propia
-      # etapa y NUNCA del host, que es lo que impide que un `vite build` local
-      # decida lo que se publica.
-      - name: Construir la imagen
-        run: docker build -t docdrop-go:ci .
-
-      # Bajo las restricciones de producción: raíz de sólo lectura, tmpfs, sin
-      # capacidades, 256 procesos, 1 GiB y 1,5 CPU. Una imagen que sólo arranca
-      # sin ellas no está probada.
-      - name: Suites HTTP contra la imagen
+  artifact-roundtrip:
+    needs: imagen
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: docdrop-oci-${{ github.run_id }}
+          path: ${{ runner.temp }}/transfer
+      - name: Verify the exact artifact after transfer, without registry writes
         env:
-          DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
-          DOCDROP_TEST_BUILD_STAMP: Dockerfile
-        run: ./scripts/run-suites.sh
-
-      - run: npx playwright install --with-deps chromium
-
-      # Y el recorrido completo contra la imagen que se despliega, que es donde
-      # se ve si el CSS salió sin procesar o si el pie perdió sus enlaces.
-      - name: Recorrido de navegador contra la imagen
-        env:
-          DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
-          DOCDROP_RED_HOST: '1'
-        run: npm run test:navegador
-
-      - name: La imagen no lleva Node ni npm
+          DIGEST: ${{ needs.imagen.outputs.digest }}
         run: |
-          docker run --rm --entrypoint sh docdrop-go:ci -c '
-            if command -v node || command -v npm || command -v npx; then
-              echo "la imagen de producción lleva Node"; exit 1
-            fi
-            id | grep -q "uid=1001" || { echo "el uid no es 1001"; exit 1; }
-          '
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y skopeo
+          tar -C "$RUNNER_TEMP/transfer" -xf "$RUNNER_TEMP/transfer/docdrop-oci.tar"
+          python3 scripts/oci-release.py verify --layout "$RUNNER_TEMP/transfer/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA"
 
   compatibilidad:
     runs-on: ubuntu-latest

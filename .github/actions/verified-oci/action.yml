@@ -1,0 +1,100 @@
+name: Build and verify one DocDrop OCI artifact
+description: One build, exact runtime suites, two rollback pairs and unchanged Trivy gate; never publishes
+outputs:
+  digest:
+    description: Root digest of the tested/scanned OCI index
+    value: ${{ steps.build.outputs.digest }}
+runs:
+  using: composite
+  steps:
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+    - id: build
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        platforms: linux/amd64
+        outputs: type=oci,dest=${{ runner.temp }}/docdrop.oci,tar=false
+        tags: docdrop:release-candidate
+        labels: |
+          org.opencontainers.image.revision=${{ github.sha }}
+          io.kaicorp.docdrop.store-contract=go-json-v1
+          io.kaicorp.docdrop.rollback-image=ghcr.io/ulzuhan/docdrop@sha256:3d6842182751552f24668cf280c0e553bf3b8cd9d798588cdac88906f6c22378
+        provenance: mode=max
+        sbom: true
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        no-cache: ${{ startsWith(github.ref, 'refs/tags/') }}
+    - name: Install OCI copier
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install --no-install-recommends -y skopeo
+    - name: Verify all OCI bytes and load the exact runtime
+      id: runtime
+      shell: bash
+      env:
+        DIGEST: ${{ steps.build.outputs.digest }}
+      run: |
+        image_id=$(python3 scripts/oci-release.py load --layout "$RUNNER_TEMP/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA")
+        echo "DOCDROP_IMAGEN=$image_id" >> "$GITHUB_ENV"
+    - name: Trivy before any registry write
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        input: ${{ runner.temp }}/docdrop.oci
+        version: v0.75.0
+        severity: CRITICAL,HIGH
+        ignore-unfixed: true
+        exit-code: '1'
+        scanners: vuln
+      env:
+        TRIVY_TIMEOUT: 20m
+    - name: HTTP suites against the gated runtime ID
+      shell: bash
+      env:
+        DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
+        DOCDROP_TEST_BUILD_STAMP: Dockerfile
+      run: ./scripts/run-suites.sh
+    - name: Backchannel against the gated runtime ID
+      shell: bash
+      env:
+        DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
+        DOCDROP_RED_HOST: '1'
+      run: bash scripts/test-backchannel.sh
+    - shell: bash
+      run: npx playwright install --with-deps chromium
+    - name: Browser journey against the gated runtime ID
+      shell: bash
+      env:
+        DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
+        DOCDROP_RED_HOST: '1'
+      run: npm run test:navegador
+    - name: Node 2.3.1 rollback against the gated image
+      shell: bash
+      env:
+        DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
+        DOCDROP_RED_HOST: '1'
+      run: bash scripts/test-compatibilidad.sh
+    - name: Go 3.1.0 rollback against the gated image
+      shell: bash
+      run: bash scripts/test-rollback-imagen.sh
+    - name: Runtime is uid 1001 and has no Node
+      shell: bash
+      run: |
+        docker run --rm --entrypoint sh "$DOCDROP_IMAGEN" -c '
+          if command -v node || command -v npm || command -v npx; then exit 1; fi
+          id | grep -q "uid=1001"
+        '
+    - name: Archive the verified layout without rebuilding
+      shell: bash
+      env:
+        DIGEST: ${{ steps.build.outputs.digest }}
+      run: |
+        python3 scripts/oci-release.py verify --layout "$RUNNER_TEMP/docdrop.oci" --digest "$DIGEST" --source "$GITHUB_SHA"
+        tar -C "$RUNNER_TEMP" -cf "$RUNNER_TEMP/docdrop-oci.tar" docdrop.oci
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: docdrop-oci-${{ github.run_id }}
+        path: ${{ runner.temp }}/docdrop-oci.tar
+        compression-level: 0
+        retention-days: 1
+        if-no-files-found: error
