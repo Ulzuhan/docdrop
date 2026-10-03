@@ -43,7 +43,7 @@ export function Segmented<T extends string | number | boolean>({
         : event.key === "ArrowLeft" || event.key === "ArrowUp"
           ? -1
           : 0;
-    let next = index;
+    let next: number;
     if (step !== 0) next = (index + step + options.length) % options.length;
     else if (event.key === "Home") next = 0;
     else if (event.key === "End") next = options.length - 1;

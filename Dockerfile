@@ -1,6 +1,6 @@
 # React assets are built with Node; only the Go binary reaches the runtime.
 
-FROM node:22-alpine AS assets
+FROM node:24-alpine AS assets
 WORKDIR /app
 # Playwright es dependencia de desarrollo y su instalación baja navegadores.
 # Aquí no se usan y no deben aparecer ni en esta capa intermedia.
