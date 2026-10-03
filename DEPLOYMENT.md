@@ -62,6 +62,47 @@ npm run test:compatibilidad          # contra el digest exacto de vuelta atrás
 
 No despliegues si algo falla. El modelo de amenaza completo y sus verificaciones están en [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md).
 
+## Publicación verificable
+
+`docker.yml` llama a `ci.yml` como workflow reutilizable en el **mismo tag y
+commit**. No consulta un verde anterior de main. Un tag estable `vX.Y.Z` debe
+coincidir con la versión de `package.json`. PR, main y ejecuciones manuales no
+publican imágenes; sus artefactos de CI sirven para revisión.
+
+El job de imagen construye **una vez** un layout OCI linux/amd64 con procedencia
+BuildKit y SBOM. `scripts/oci-release.py` verifica el digest del índice y los
+bytes de cada manifest, configuración, capa y attestation. Skopeo carga el
+runtime del índice y se comprueba su image ID antes de ejecutar las suites
+HTTP, cierre de sesión y navegador, las restricciones/uid del runtime, y las
+dos parejas de persistencia: Node 2.3.1 → candidata → Node 2.3.1 y Go 3.1.0 →
+candidata → Go 3.1.0. Cada ensayo usa un almacén temporal y un escritor por turno,
+sin restaurar datos. Trivy conserva el gate HIGH/CRITICAL con arreglo disponible
+y escanea ese layout **antes de cualquier escritura en GHCR**.
+
+El layout se transfiere como artefacto (retención un día) y se vuelve a verificar
+en otro job también en los PR. El publicador necesita el CI completo verde y
+permisos separados; no construye nada. Copia todos los manifests con
+`--all --preserve-digests` a un tag candidato único, firma ese digest con OIDC
+y verifica repositorio, workflow, commit, ref y runner de GitHub antes de copiar
+los mismos bytes a versión, major.minor, major y latest. Nunca sobrescribe una
+versión estable que ya tenga otro digest. Un fallo de promoción parcial deja
+el run en rojo: ningún consumidor debe desplegarla aunque exista un tag.
+Diagnosticar y publicar una nueva versión, sin re-etiquetar el digest antiguo.
+
+La firma prueba origen; la **conclusión success del run exacto** prueba que ese
+flujo completó sus gates. El piloto de infraestructura exige ambos, además de
+los labels de revisión y contrato del almacén. No contiene credenciales,
+contacto con el miniPC, SSH, timers ni despliegue. Su compañero es el
+[draft de infraestructura #38](https://github.com/Ulzuhan/kaicorplabs-infra/pull/38).
+
+El ensayo Compose se ejecuta explícitamente en el repositorio privado de
+infraestructura, con el artefacto OCI de un run de CI terminado en success,
+su digest y revisión exactos. No se copia código privado al repositorio público
+ni se añaden credenciales para checkout entre repositorios. El harness usa
+proyectos, redes internas y volúmenes sintéticos exclusivos del runner Ubuntu
+x86_64. La admisión de la candidata es una fixture declarada: no sustituye la
+firma de una futura release ni autoriza un despliegue en el host.
+
 ## Vuelta atrás
 
 El retorno histórico es la imagen publicada de Node **2.3.1**, fijada por digest:
@@ -71,6 +112,15 @@ El retorno histórico es la imagen publicada de Node **2.3.1**, fijada por diges
 Su código y `Dockerfile.node` ya no están en la rama activa; no son necesarios para usar esa imagen. Se para el servicio, se vuelve al digest y al comando anteriores **sobre el árbol de datos actual**, y se arranca. `scripts/test-compatibilidad.sh` comprueba exactamente ese camino —Node publicado → Go → el mismo Node, por turnos, sin escritores simultáneos— y verifica que lo que Go agotó sigue agotado y lo caducado sigue caducado.
 
 **Restaurar una copia no es una vuelta atrás.** Perdería lo subido después y, peor, resucitaría ficheros que alguien ya retiró y contadores ya gastados: en un servicio cuyo producto es «esto se borra solo», eso es peor que el fallo que se intentaba arreglar. Si el estado estuviera corrupto, se aísla y se decide la recuperación explícitamente.
+
+La pareja del piloto Go usa el digest exacto 3.1.0:
+`ghcr.io/ulzuhan/docdrop@sha256:3d6842182751552f24668cf280c0e553bf3b8cd9d798588cdac88906f6c22378`.
+`scripts/test-rollback-imagen.sh` reutiliza las aserciones existentes sobre el
+runtime cargado del OCI, conservando también el ensayo histórico Node. El label
+`io.kaicorp.docdrop.store-contract=go-json-v1` sólo tiene sentido junto al run
+verde y `io.kaicorp.docdrop.rollback-image` con esa pareja. Cambiar el formato,
+la configuración o la imagen anterior exige revisar y ensayar la nueva pareja
+en ambos repos antes de habilitar una operación. No hay migración automática.
 
 ## Estado del repositorio
 
