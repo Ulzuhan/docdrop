@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Digest Go 3.1.0 → artefacto OCI candidato cargado → mismo Go 3.1.0.
+# Digest Go revisado → artefacto OCI candidato cargado → mismo Go revisado.
 # Reutiliza TODAS las aserciones de persistencia sin sustituir el ensayo Node.
 # Los nombres de fase históricos de test-compatibilidad no cambian su contrato.
 # Un almacén sintético, un escritor por turno, cero restauraciones.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BASELINE=ghcr.io/ulzuhan/docdrop@sha256:3d6842182751552f24668cf280c0e553bf3b8cd9d798588cdac88906f6c22378
+BASELINE=$(python3 scripts/rollback-baseline.py image)
 : "${DOCDROP_IMAGEN:?falta el image ID del runtime verificado en el layout OCI}"
 [[ "$DOCDROP_IMAGEN" =~ ^sha256:[a-f0-9]{64}$ ]] || {
   echo "se exige el image ID exacto, no un tag mutable" >&2; exit 1;
