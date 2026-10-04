@@ -2,6 +2,7 @@
 """Verifica/carga/copia el mismo layout OCI. Nunca construye una imagen."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,10 @@ import tempfile
 
 REPOSITORY = "ghcr.io/ulzuhan/docdrop"
 DIGEST = re.compile(r"sha256:[a-f0-9]{64}")
-ROLLBACK = REPOSITORY + "@sha256:3d6842182751552f24668cf280c0e553bf3b8cd9d798588cdac88906f6c22378"
+SPEC = importlib.util.spec_from_file_location("rollback_baseline", Path(__file__).with_name("rollback-baseline.py"))
+rollback_baseline = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(rollback_baseline)
+ROLLBACK = rollback_baseline.image()
 
 
 class Refused(RuntimeError):

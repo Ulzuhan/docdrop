@@ -7,6 +7,14 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Verify the reviewed exact rollback release
+      id: rollback
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        image=$(python3 scripts/rollback-baseline.py verify)
+        echo "image=$image" >> "$GITHUB_OUTPUT"
     - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
     - id: build
       uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -18,7 +26,7 @@ runs:
         labels: |
           org.opencontainers.image.revision=${{ github.sha }}
           io.kaicorp.docdrop.store-contract=go-json-v1
-          io.kaicorp.docdrop.rollback-image=ghcr.io/ulzuhan/docdrop@sha256:3d6842182751552f24668cf280c0e553bf3b8cd9d798588cdac88906f6c22378
+          io.kaicorp.docdrop.rollback-image=${{ steps.rollback.outputs.image }}
         provenance: mode=max
         sbom: true
         cache-from: type=gha
@@ -74,7 +82,7 @@ runs:
         DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
         DOCDROP_RED_HOST: '1'
       run: bash scripts/test-compatibilidad.sh
-    - name: Go 3.1.0 rollback against the gated image
+    - name: Reviewed Go rollback release against the gated image
       shell: bash
       run: bash scripts/test-rollback-imagen.sh
     - name: Runtime is uid 1001 and has no Node
