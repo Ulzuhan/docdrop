@@ -17,7 +17,7 @@ COPY public ./public
 COPY src ./src
 RUN npx vite build
 
-FROM golang:1.27.1-alpine AS build
+FROM golang:1.27.3-alpine AS build
 WORKDIR /src
 COPY go.mod ./
 COPY cmd ./cmd
