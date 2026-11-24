@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { HardDrive } from "lucide-react";
+import { AppSwitcher } from "@/components/app-switcher";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { StorageInfo } from "@/lib/api";
@@ -26,11 +27,24 @@ function Gauge({ storage }: { storage: StorageInfo }) {
  * The header: brand on the left; storage gauge, the screen's own actions and
  * the theme toggle on the right. On a phone the gauge moves to a line under it.
  */
-export function Header({ storage, children }: { storage?: StorageInfo | null; children?: ReactNode }) {
+export function Header({
+  storage,
+  showSwitcher,
+  children,
+}: {
+  storage?: StorageInfo | null;
+  showSwitcher?: boolean;
+  children?: ReactNode;
+}) {
+  const switcherVisible =
+    showSwitcher ??
+    (typeof document !== "undefined" && document.getElementById("app")?.dataset.footerLinks === "on");
+
   return (
     <>
       <header className="hdr">
         <div className="container hdr-inner">
+          {switcherVisible && <AppSwitcher current="docdrop" />}
           <Brand />
           <div className="hdr-actions">
             {storage && <Gauge storage={storage} />}
