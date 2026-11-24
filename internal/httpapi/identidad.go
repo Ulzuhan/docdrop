@@ -133,6 +133,11 @@ type estadoLogin struct {
 // corta. Una cookie y no estado en el servidor porque todavía no hay sesión:
 // esto pasa antes de saber quién pregunta.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	siguiente := auth.SafeNext(r.URL.Query().Get("next"))
+	if s.usuarioActual(r) != nil {
+		http.Redirect(w, r, siguiente, http.StatusFound)
+		return
+	}
 	if s.cfg.OIDC == nil {
 		errorJSON(w, http.StatusServiceUnavailable, "Sign-in is not configured on this instance")
 		return
@@ -143,10 +148,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusInternalServerError, "Sign-in unavailable")
 		return
 	}
-	// Sólo rutas internas: sin esto, un enlace con ?next=https://otro-sitio
-	// convertiría el inicio de sesión en un redirector a donde quisiera quien
-	// mandara el enlace.
-	siguiente := auth.SafeNext(r.URL.Query().Get("next"))
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.OIDC.Timeout)
 	defer cancel()
@@ -247,7 +248,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, s.sesiones.CookieBorrada())
 
-	siguiente := "/"
+	siguiente := "/?signed_out=1"
 	if s.cfg.OIDC != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.OIDC.Timeout)
 		defer cancel()

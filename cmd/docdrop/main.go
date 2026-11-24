@@ -144,12 +144,13 @@ func piezas() (*store.Store, *httpapi.Server, error) {
 
 	servidor := httpapi.Nuevo(httpapi.Piezas{
 		Cfg: httpapi.Config{
-			PublicHost:     entorno("DOCDROP_PUBLIC_HOST", ""),
-			EnrollURL:      urlValida(entorno("DOCDROP_ENROLL_URL", "")),
-			AccountURL:     urlValida(entorno("DOCDROP_ACCOUNT_URL", "")),
-			EnlacesPie:     strings.TrimSpace(os.Getenv("KAICORP_FOOTER_LINKS")) != "",
-			CookiesSeguras: seguras,
-			OIDC:           oidc,
+			PublicHost:        entorno("DOCDROP_PUBLIC_HOST", ""),
+			EnrollURL:         urlValida(entorno("DOCDROP_ENROLL_URL", "")),
+			AccountURL:        urlValida(entorno("DOCDROP_ACCOUNT_URL", "")),
+			AccountSessionURL: urlValida(entorno("DOCDROP_ACCOUNT_SESSION_URL", "")),
+			EnlacesPie:        strings.TrimSpace(os.Getenv("KAICORP_FOOTER_LINKS")) != "",
+			CookiesSeguras:    seguras,
+			OIDC:              oidc,
 		},
 		Almacen:   almacen,
 		Subidas:   subidas,
