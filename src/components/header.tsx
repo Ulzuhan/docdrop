@@ -30,21 +30,26 @@ function Gauge({ storage }: { storage: StorageInfo }) {
 export function Header({
   storage,
   showSwitcher,
+  signedIn,
   children,
 }: {
   storage?: StorageInfo | null;
   showSwitcher?: boolean;
+  signedIn?: boolean;
   children?: ReactNode;
 }) {
   const switcherVisible =
     showSwitcher ??
     (typeof document !== "undefined" && document.getElementById("app")?.dataset.footerLinks === "on");
+  const isSignedIn =
+    signedIn ??
+    Boolean(typeof document !== "undefined" && document.getElementById("app")?.dataset.email);
 
   return (
     <>
       <header className="hdr">
         <div className="container hdr-inner">
-          {switcherVisible && <AppSwitcher current="docdrop" />}
+          {switcherVisible && <AppSwitcher current="docdrop" signedIn={isSignedIn} />}
           <Brand />
           <div className="hdr-actions">
             {storage && <Gauge storage={storage} />}
