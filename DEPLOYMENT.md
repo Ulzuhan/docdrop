@@ -37,7 +37,7 @@ Evita logs de URL completos y no añadas analítica de terceros: la llave nunca 
 
 ## Identidad y rotación
 
-Las sesiones firmadas duran 12 horas por defecto (máximo 24). El proveedor puede cerrarlas antes con su aviso de cierre de sesión (back-channel), que anota a esa persona en `revocaciones.json` y hace que sus cookies dejen de valer en la siguiente petición; sin aviso, el tope es la caducidad de la cookie. Borrar la cuenta en el proveedor no basta por sí solo, pero borrar su ficha del almacén sí: la sesión busca al usuario en disco en cada petición. Rota `DOCDROP_SESSION_SECRET` para invalidar todas a la vez. Guarda los secretos OIDC fuera de la imagen y restringe la lectura del fichero `.env`.
+Las sesiones firmadas duran 12 horas por defecto (máximo 24). Con `DOCDROP_OIDC_REQUIRED_GROUP`, el alta de sesión por OIDC exige además que el access token firmado con ES256 contenga ese grupo (verificado contra las JWKS del proveedor). El proveedor puede cerrarlas antes con su aviso de cierre de sesión (back-channel), que anota a esa persona en `revocaciones.json` y hace que sus cookies dejen de valer en la siguiente petición; sin aviso, el tope es la caducidad de la cookie. Borrar la cuenta en el proveedor no basta por sí solo, pero borrar su ficha del almacén sí: la sesión busca al usuario en disco en cada petición. Rota `DOCDROP_SESSION_SECRET` para invalidar todas a la vez. Guarda los secretos OIDC fuera de la imagen y restringe la lectura del fichero `.env`.
 
 ## Parada, y qué pasa con una transferencia en curso
 
@@ -69,15 +69,7 @@ commit**. No consulta un verde anterior de main. Un tag estable `vX.Y.Z` debe
 coincidir con la versión de `package.json`. PR, main y ejecuciones manuales no
 publican imágenes; sus artefactos de CI sirven para revisión.
 
-El job de imagen construye **una vez** un layout OCI linux/amd64 con procedencia
-BuildKit y SBOM. `scripts/oci-release.py` verifica el digest del índice y los
-bytes de cada manifest, configuración, capa y attestation. Skopeo carga el
-runtime del índice y se comprueba su image ID antes de ejecutar las suites
-HTTP, cierre de sesión y navegador, las restricciones/uid del runtime, y las
-dos parejas de persistencia: Node 2.3.1 → candidata → Node 2.3.1 y Go 3.1.0 →
-candidata → Go 3.1.0. Cada ensayo usa un almacén temporal y un escritor por turno,
-sin restaurar datos. Trivy conserva el gate HIGH/CRITICAL con arreglo disponible
-y escanea ese layout **antes de cualquier escritura en GHCR**.
+El flujo de imagen construye de forma nativa un layout OCI para `linux/amd64` (`ubuntu-24.04`) y otro para `linux/arm64` (`ubuntu-24.04-arm`) con procedencia BuildKit y SBOM, y los une en un único índice multi-arquitectura mediante `scripts/oci-release.py merge`. `scripts/oci-release.py` verifica el digest del índice y los bytes de cada manifest, configuración, capa y attestation. Skopeo carga el runtime del índice en su runner nativo y se comprueba su image ID antes de ejecutar las suites HTTP y de cierre de sesión (además del recorrido de navegador y las dos parejas de persistencia en `linux/amd64`: Node 2.3.1 → candidata → Node 2.3.1 y Go 3.1.0 → candidata → Go 3.1.0). Cada ensayo usa un almacén temporal y un escritor por turno, sin restaurar datos. Trivy conserva el gate HIGH/CRITICAL con arreglo disponible y escanea ambos layouts **antes de cualquier escritura en GHCR**.
 
 El layout se transfiere como artefacto (retención un día) y se vuelve a verificar
 en otro job también en los PR. El publicador necesita el CI completo verde y
