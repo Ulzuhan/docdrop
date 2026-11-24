@@ -24,10 +24,10 @@ export function Footer({ links }: { links: boolean }) {
           </span>
         </a>
         {links && (
-          <nav className="ftr-nav" aria-label="Other services">
+          <nav className="ftr-nav" aria-label="KaiCorp Labs services">
             {SERVICES.map((service) =>
               service.slug === "docdrop" ? (
-                <span key={service.slug} aria-current="page">
+                <span key={service.slug} aria-current="page" className="ftr-current">
                   {service.name}
                 </span>
               ) : (
@@ -36,6 +36,11 @@ export function Footer({ links }: { links: boolean }) {
                 </a>
               )
             )}
+            <span className="ftr-sep" aria-hidden="true">
+              ·
+            </span>
+            <a href="https://account.kaicorplabs.com/">Account</a>
+            <a href="https://kaicorplabs.com/privacy/">Privacy</a>
           </nav>
         )}
       </div>

@@ -1708,10 +1708,15 @@ audio.preview {
 }
 
 /* Footer. */
+#app > main {
+  flex: 1 0 auto;
+  padding-bottom: 48px;
+}
+
 .ftr {
-  margin-top: 48px;
+  margin-top: auto;
   border-top: 1px solid var(--line);
-  padding: 22px 0 calc(22px + env(safe-area-inset-bottom));
+  padding: 20px 0 calc(20px + env(safe-area-inset-bottom));
   font-size: 12.5px;
   color: var(--text-2);
 }
@@ -1749,6 +1754,7 @@ audio.preview {
 .ftr-nav {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
   gap: 6px 16px;
 }
@@ -1758,8 +1764,168 @@ audio.preview {
 .ftr-nav a:hover {
   color: var(--text);
 }
-.ftr-nav [aria-current] {
+.ftr-nav [aria-current],
+.ftr-current {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+.ftr-sep {
+  color: var(--line-2);
+  user-select: none;
+}
+
+/* App switcher. */
+.kc-switcher-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color var(--t-fast), background-color var(--t-fast), border-color var(--t-fast);
+}
+.kc-switcher-btn:hover,
+.kc-switcher-btn[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--bg-3);
+  border-color: var(--line-2);
+}
+.kc-switcher-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.kc-switcher-panel[popover] {
+  inline-size: min(19rem, calc(100dvw - 2rem));
+  max-inline-size: calc(100dvw - 2rem);
+  max-block-size: calc(100dvh - 6rem);
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--bg-2);
+  color: var(--text);
+  box-shadow: var(--shadow, 0 22px 50px -30px rgba(0, 0, 0, 0.5));
+}
+@supports (position-area: block-end) {
+  .kc-switcher-panel[popover] {
+    inset: auto;
+    margin: 0;
+    margin-block-start: 0.5rem;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    height: auto;
+  }
+}
+@supports not (position-area: block-end) {
+  .kc-switcher-panel[popover] {
+    position: fixed;
+    inset: auto;
+    inset-block-start: 4.25rem;
+    inset-inline-start: 1rem;
+    margin: 0;
+  }
+}
+@supports not selector(:popover-open) {
+  .kc-switcher-panel[popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+.kc-switcher-panel[popover]:is(:popover-open, .\:popover-open) {
+  display: block;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .kc-switcher-panel[popover] {
+    opacity: 0;
+    translate: 0 -4px;
+    transition: opacity 140ms ease, translate 140ms ease, display 140ms, overlay 140ms;
+    transition-behavior: allow-discrete;
+  }
+  .kc-switcher-panel[popover]:is(:popover-open, .\:popover-open) {
+    opacity: 1;
+    translate: 0 0;
+    @starting-style {
+      opacity: 0;
+      translate: 0 -4px;
+    }
+  }
+}
+.kc-switcher-title {
+  margin: 0 0 0.5rem;
+  padding-inline: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--text-3);
+}
+.kc-switcher-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+.kc-switcher-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border-inline-start: 2px solid transparent;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.kc-switcher-link:hover {
+  background: var(--bg-3);
+}
+.kc-switcher-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.kc-switcher-link[aria-current="page"] {
+  background: var(--accent-soft);
+  border-inline-start-color: var(--accent);
+  font-weight: 600;
+}
+.kc-switcher-meta {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 0;
+}
+.kc-switcher-desc {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.kc-switcher-badge {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  color: var(--text-2);
+  flex: none;
+}
+.kc-switcher-sep {
+  margin: 0.55rem 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.kc-switcher-foot {
+  display: grid;
+  gap: 0.15rem;
 }
 
 /* QR dialog. */
