@@ -4,6 +4,8 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+
+	"github.com/Ulzuhan/docdrop/internal/web"
 )
 
 const (
@@ -28,6 +30,7 @@ type datos struct {
 	// Lo que el navegador necesita saber y no puede deducir.
 	Email         string
 	CuentaURL     string
+	SessionURL    string
 	AltaURL       string
 	Footer        bool
 	FicheroID     string
@@ -35,9 +38,16 @@ type datos struct {
 }
 
 func (s *Server) documento(w http.ResponseWriter, r *http.Request, d datos) {
+	s.documentoConEstado(w, r, http.StatusOK, d)
+}
+
+func (s *Server) documentoConEstado(w http.ResponseWriter, r *http.Request, estado int, d datos) {
 	d.Nonce = nonceDe(r)
 	d.JS, d.CSS = s.recursos.JS, s.recursos.CSS
 	d.CuentaURL = s.cfg.AccountURL
+	if s.cfg.OIDC != nil {
+		d.SessionURL = s.cfg.AccountSessionURL
+	}
 	d.AltaURL = s.cfg.EnrollURL
 	d.Footer = s.cfg.EnlacesPie
 	if d.Titulo == "" {
@@ -54,7 +64,7 @@ func (s *Server) documento(w http.ResponseWriter, r *http.Request, d datos) {
 	// El HTML es privado: enseña el correo de quien entra y decide si ve el
 	// panel o la portada. El valor es el mismo que emite la versión de Node.
 	h.Set("Cache-Control", "private, no-cache, no-store, max-age=0, must-revalidate")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(estado)
 	_ = plantilla.Execute(w, d)
 }
 
@@ -79,8 +89,19 @@ func (s *Server) canonica(ruta string) string {
 // de entrada, que para un desconocido es una puerta cerrada sin explicación de
 // lo que hay detrás.
 func (s *Server) paginaInicio(w http.ResponseWriter, r *http.Request) {
+	u := s.usuarioActual(r)
+	if r.URL.Query().Get("sso") == "1" {
+		if u != nil {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+		if s.cfg.OIDC != nil {
+			http.Redirect(w, r, "/api/auth/login", http.StatusFound)
+			return
+		}
+	}
 	d := datos{Pagina: "landing", Canonica: s.canonica("/")}
-	if u := s.usuarioActual(r); u != nil {
+	if u != nil {
 		d.Pagina, d.Email = "dashboard", u.Email
 	}
 	s.documento(w, r, d)
@@ -185,7 +206,37 @@ func (s *Server) estaticoO404(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusNotFound, "Not found")
 		return
 	}
-	s.estaticos.ServeHTTP(w, r)
+	if web.TieneEstatico(r.URL.Path) {
+		s.estaticos.ServeHTTP(w, r)
+		return
+	}
+	if s.recursos.JS != "" {
+		s.documentoConEstado(w, r, http.StatusNotFound, datos{
+			Pagina:  "notfound",
+			Titulo:  "Not found — DocDrop",
+			NoIndex: true,
+		})
+		return
+	}
+	s.paginaError(w, http.StatusNotFound, "404", "Nothing at this address", "The link may be mistyped, or whatever was here is gone.")
+}
+
+var plantillaError = template.Must(template.New("error").Parse(`<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>{{.Titulo}} — DocDrop</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d14;color:#eef0f6;font:400 16px/1.6 system-ui,sans-serif;padding:2rem}main{max-width:30rem;text-align:center;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:2rem;background:#121623}p.k{margin:0 0 .5rem;font:500 12px/1 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:#99a3ba}h1{margin:0 0 .75rem;font-size:1.5rem}p{margin:0 0 1.4rem;color:#99a3ba}a{display:inline-block;padding:.55rem 1rem;border-radius:10px;background:#ff7357;color:#110b09;font-weight:600;text-decoration:none}</style>
+</head><body><main><p class="k">{{.Codigo}}</p><h1>{{.Titulo}}</h1><p>{{.Mensaje}}</p><a href="/">Go to DocDrop</a></main></body></html>`))
+
+func (s *Server) paginaError(w http.ResponseWriter, estado int, codigo, titulo, mensaje string) {
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	w.WriteHeader(estado)
+	_ = plantillaError.Execute(w, map[string]string{
+		"Codigo":  codigo,
+		"Titulo":  titulo,
+		"Mensaje": mensaje,
+	})
 }
 
 // El documento. Lo compone Go con la sesión ya resuelta y deja en `#app` lo que
@@ -225,7 +276,7 @@ var plantilla = template.Must(template.New("doc").Parse(
 {{range .CSS}}<link rel="stylesheet" href="{{.}}">
 {{end}}</head>
 <body>
-<div id="app" data-page="{{.Pagina}}"{{if .Email}} data-email="{{.Email}}"{{end}}{{if .FicheroID}} data-file-id="{{.FicheroID}}"{{end}}{{if .TokenInvitado}} data-guest-token="{{.TokenInvitado}}"{{end}}{{if .CuentaURL}} data-account-url="{{.CuentaURL}}"{{end}}{{if .AltaURL}} data-enroll-url="{{.AltaURL}}"{{end}}{{if .Footer}} data-footer-links="on"{{end}}></div>
+<div id="app" data-page="{{.Pagina}}"{{if .Email}} data-email="{{.Email}}"{{end}}{{if .FicheroID}} data-file-id="{{.FicheroID}}"{{end}}{{if .TokenInvitado}} data-guest-token="{{.TokenInvitado}}"{{end}}{{if .CuentaURL}} data-account-url="{{.CuentaURL}}"{{end}}{{if .SessionURL}} data-session-url="{{.SessionURL}}"{{end}}{{if .AltaURL}} data-enroll-url="{{.AltaURL}}"{{end}}{{if .Footer}} data-footer-links="on"{{end}}></div>
 {{if .JS}}<script type="module" nonce="{{.Nonce}}" src="{{.JS}}"></script>{{end}}
 </body></html>
 `))

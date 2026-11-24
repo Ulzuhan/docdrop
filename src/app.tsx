@@ -5,6 +5,7 @@ import { Dashboard } from "@/screens/dashboard";
 import { DownloadPage } from "@/screens/download";
 import { GuestPage } from "@/screens/guest";
 import { Landing } from "@/screens/landing";
+import { NotFoundPage } from "@/screens/not-found";
 
 /**
  * Go composes the document with the session already resolved and leaves in
@@ -27,8 +28,16 @@ export function App() {
     case "guest":
       screen = <GuestPage />;
       break;
+    case "notfound":
+      screen = <NotFoundPage />;
+      break;
     default:
-      screen = <Landing enrollUrl={data.enrollUrl?.trim() || null} />;
+      screen = (
+        <Landing
+          enrollUrl={data.enrollUrl?.trim() || null}
+          sessionUrl={data.sessionUrl?.trim() || null}
+        />
+      );
   }
 
   return (

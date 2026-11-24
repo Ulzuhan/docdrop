@@ -54,6 +54,25 @@ func conBarra(rutas []string) []string {
 	return salida
 }
 
+// TieneEstatico dice si la ruta corresponde a un fichero real de `dist/` que
+// `Estaticos()` sirve (excluyendo la raíz y `.vite/`).
+func TieneEstatico(ruta string) bool {
+	if strings.HasPrefix(ruta, "/.vite/") || ruta == "" || ruta == "/" {
+		return false
+	}
+	sub, err := fs.Sub(incrustado, "dist")
+	if err != nil {
+		return false
+	}
+	f, err := http.FS(sub).Open(ruta)
+	if err != nil {
+		return false
+	}
+	info, err := f.Stat()
+	f.Close()
+	return err == nil && !info.IsDir()
+}
+
 // Estaticos sirve lo construido y, aparte, lo que vite copia de `public/`: el
 // logo, la imagen de OpenGraph, los iconos de la PWA y el service worker.
 //

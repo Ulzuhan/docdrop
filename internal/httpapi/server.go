@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,12 +20,13 @@ import (
 )
 
 type Config struct {
-	PublicHost     string
-	EnrollURL      string
-	AccountURL     string
-	EnlacesPie     bool
-	CookiesSeguras bool
-	OIDC           *auth.Config
+	PublicHost        string
+	EnrollURL         string
+	AccountURL        string
+	AccountSessionURL string
+	EnlacesPie        bool
+	CookiesSeguras    bool
+	OIDC              *auth.Config
 }
 
 type Server struct {
@@ -156,6 +158,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	s.cabeceras(w, r)
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("[docdrop] panic en %s %s: %v", r.Method, r.URL.Path, rec)
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				errorJSON(w, http.StatusInternalServerError, "Internal server error")
+				return
+			}
+			s.paginaError(w, http.StatusInternalServerError, "500", "Something went wrong", "The page could not be loaded right now.")
+		}
+	}()
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -202,6 +214,12 @@ func (s *Server) csp(nonce string) string {
 	if s.cfg.OIDC != nil && s.cfg.OIDC.PublicOrigin != "" {
 		idp = " " + s.cfg.OIDC.PublicOrigin
 	}
+	extraConnect := ""
+	if s.cfg.OIDC != nil && s.cfg.AccountSessionURL != "" {
+		if u, err := url.Parse(s.cfg.AccountSessionURL); err == nil && u.Scheme != "" && u.Host != "" {
+			extraConnect = " " + u.Scheme + "://" + u.Host
+		}
+	}
 	return strings.Join([]string{
 		"default-src 'self'",
 		"script-src 'self' 'nonce-" + nonce + "' 'strict-dynamic'",
@@ -211,7 +229,7 @@ func (s *Server) csp(nonce string) string {
 		// `blob:` es para las previsualizaciones de lo que se va a subir.
 		"img-src 'self' data: blob:",
 		"font-src 'self'",
-		"connect-src 'self'" + idp + " https://cloudflareinsights.com",
+		"connect-src 'self'" + idp + extraConnect + " https://cloudflareinsights.com",
 		"form-action 'self'" + idp,
 		"worker-src 'self' blob:",
 		"manifest-src 'self'",

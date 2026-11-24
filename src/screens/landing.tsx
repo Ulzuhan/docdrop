@@ -22,13 +22,25 @@ import { Ring } from "@/components/ui/ring";
 import { FileIcon } from "@/components/file-icon";
 import { SIGN_IN_URL } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import {
+  clearLandingSessionSuppression,
+  useLandingSession,
+} from "@/lib/use-landing-session";
 
 /**
  * What somebody without a session sees: what this is, and the way in. The
  * enrollment button exists only when whoever runs the instance configured a
  * self-service flow at the identity provider.
  */
-export function Landing({ enrollUrl }: { enrollUrl: string | null }) {
+export function Landing({
+  enrollUrl,
+  sessionUrl = null,
+}: {
+  enrollUrl: string | null;
+  sessionUrl?: string | null;
+}) {
+  const sessionState = useLandingSession(sessionUrl, SIGN_IN_URL);
+
   // The provider bounced the sign-in: say so once and clean the address.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -36,6 +48,90 @@ export function Landing({ enrollUrl }: { enrollUrl: string | null }) {
     window.history.replaceState({}, "", "/");
     toast.error("Sign-in did not complete", "Try again; if it keeps happening, ask whoever runs this instance.");
   }, []);
+
+  const renderActions = () => {
+    if (!sessionState) {
+      return (
+        <>
+          <div className="land-cta">
+            {enrollUrl && (
+              <LinkButton href={enrollUrl} variant="primary" size="lg">
+                <UserPlus />
+                Request an account
+              </LinkButton>
+            )}
+            <LinkButton href={SIGN_IN_URL} variant={enrollUrl ? "outline" : "primary"} size="lg">
+              <LogIn />
+              Sign in
+            </LinkButton>
+          </div>
+          <div className="land-fine">
+            <span>Got a guest link instead? Open it — it works without an account.</span>
+            {enrollUrl && (
+              <span>Already have an account elsewhere in this family of services? Use the same button.</span>
+            )}
+          </div>
+        </>
+      );
+    }
+
+    if (sessionState.kind === "continue") {
+      return (
+        <>
+          <div className="land-cta">
+            <LinkButton
+              href={SIGN_IN_URL}
+              variant="primary"
+              size="lg"
+              onClick={clearLandingSessionSuppression}
+            >
+              <LogIn />
+              Continue as {sessionState.name}
+            </LinkButton>
+          </div>
+          <div className="land-fine">
+            <span>Signed in to your KaiCorp Labs account.</span>
+            <span>Got a guest link instead? Open it — it works without an account.</span>
+          </div>
+        </>
+      );
+    }
+
+    const label =
+      sessionState.kind === "requestable"
+        ? "Ask for access"
+        : sessionState.kind === "pending"
+          ? "View request"
+          : "Your account";
+    const note =
+      sessionState.kind === "pending"
+        ? "Waiting for approval"
+        : sessionState.kind === "invite_only"
+          ? "By invitation only"
+          : "";
+
+    return (
+      <>
+        <div className="land-cta">
+          <LinkButton
+            href={sessionState.accountUrl}
+            variant={sessionState.kind === "requestable" ? "primary" : "outline"}
+            size="lg"
+          >
+            <UserPlus />
+            {label}
+          </LinkButton>
+        </div>
+        <div className="land-fine">
+          <span>
+            Signed in as {sessionState.name}
+            {note ? ` · ${note}` : ""}
+          </span>
+          <span>Got a guest link instead? Open it — it works without an account.</span>
+        </div>
+      </>
+    );
+  };
 
   return (
     <>
@@ -63,24 +159,7 @@ export function Landing({ enrollUrl }: { enrollUrl: string | null }) {
                 The video off your camera, untouched. No recompressing it into mush, no ten-minute upload that dies
                 at 80%, no account needed on the other end. Just a link that burns out when you say so.
               </p>
-              <div className="land-cta">
-                {enrollUrl && (
-                  <LinkButton href={enrollUrl} variant="primary" size="lg">
-                    <UserPlus />
-                    Request an account
-                  </LinkButton>
-                )}
-                <LinkButton href={SIGN_IN_URL} variant={enrollUrl ? "outline" : "primary"} size="lg">
-                  <LogIn />
-                  Sign in
-                </LinkButton>
-              </div>
-              <div className="land-fine">
-                <span>Got a guest link instead? Open it — it works without an account.</span>
-                {enrollUrl && (
-                  <span>Already have an account elsewhere in this family of services? Use the same button.</span>
-                )}
-              </div>
+              {renderActions()}
             </div>
 
             <LiveDemo />
