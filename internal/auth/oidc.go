@@ -24,6 +24,7 @@ import (
 )
 
 type Config struct {
+	RequiredGroup  string
 	Issuer         string
 	PublicOrigin   string
 	InternalOrigin string
@@ -78,7 +79,7 @@ func DesdeEntorno() *Config {
 	if v, err := strconv.Atoi(os.Getenv("DOCDROP_OIDC_TIMEOUT_MS")); err == nil && v >= 1000 && v <= 60000 {
 		espera = time.Duration(v) * time.Millisecond
 	}
-	return &Config{Issuer: emisor, PublicOrigin: publico.Scheme + "://" + publico.Host,
+	return &Config{RequiredGroup: strings.TrimSpace(os.Getenv("DOCDROP_OIDC_REQUIRED_GROUP")), Issuer: emisor, PublicOrigin: publico.Scheme + "://" + publico.Host,
 		InternalOrigin: interno, ClientID: clientID, ClientSecret: secreto,
 		RedirectURI: redirect, Timeout: espera}
 }
@@ -310,6 +311,11 @@ func (d *Discovery) Canjear(ctx context.Context, cfg *Config, codigo, verificado
 	}
 	if info.Sub == "" || info.Email == "" {
 		return Identidad{}, fmt.Errorf("userinfo: sin sub o email")
+	}
+	if cfg.RequiredGroup != "" {
+		if err := d.requireMembership(ctx, cfg, e, tok.AccessToken, info.Sub); err != nil {
+			return Identidad{}, err
+		}
 	}
 	id := Identidad{Sub: info.Sub, Email: info.Email}
 	if nombre := info.Name; nombre != "" {

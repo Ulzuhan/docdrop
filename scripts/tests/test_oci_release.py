@@ -16,35 +16,61 @@ SPEC.loader.exec_module(oci)
 SOURCE = "b" * 40
 
 
+def make_layout(base, arch="amd64", source=SOURCE, rollback=None):
+    (base / "blobs/sha256").mkdir(parents=True, exist_ok=True)
+    def put(value):
+        data = value if isinstance(value, bytes) else json.dumps(value).encode()
+        digest = hashlib.sha256(data).hexdigest()
+        (base / "blobs/sha256" / digest).write_bytes(data)
+        return {"digest": "sha256:" + digest, "size": len(data)}
+    labels = {
+        "org.opencontainers.image.revision": source,
+        "io.kaicorp.docdrop.store-contract": "go-json-v1",
+        "io.kaicorp.docdrop.rollback-image": rollback or oci.ROLLBACK,
+    }
+    config = put({"architecture": arch, "os": "linux", "config": {"Labels": labels}})
+    layer = put(f"synthetic layer {arch}".encode())
+    runtime = put({"config": config, "layers": [layer]})
+    runtime["platform"] = {"architecture": arch, "os": "linux"}
+    attestation = put({"config": put({}), "layers": [
+        put({"predicateType": "https://slsa.dev/provenance/v0.2"}),
+        put({"predicateType": "https://spdx.dev/Document"}),
+    ]})
+    attestation["platform"] = {"architecture": "unknown", "os": "unknown"}
+    attestation["annotations"] = {
+        "vnd.docker.reference.type": "attestation-manifest",
+        "vnd.docker.reference.digest": runtime["digest"],
+    }
+    root = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [runtime, attestation]}
+    root_desc = put(root)
+    root_desc["mediaType"] = "application/vnd.oci.image.index.v1+json"
+    (base / "oci-layout").write_text('{"imageLayoutVersion":"1.0.0"}\n')
+    (base / "index.json").write_text(json.dumps({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [root_desc]}))
+    return config, root, root_desc["digest"], put
+
+
+def fake_inspect(*args):
+    assert args[:3] == ("skopeo", "inspect", "--raw")
+    layout = Path(args[3].removeprefix("oci:"))
+    index = json.loads((layout / "index.json").read_text())
+    digest = index["manifests"][0]["digest"].split(":")[1]
+    return (layout / "blobs/sha256" / digest).read_bytes()
+
+
 class OCITests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.layout = Path(self.tmp.name)
-        (self.layout / "blobs/sha256").mkdir(parents=True)
-        labels = {"org.opencontainers.image.revision": SOURCE, "io.kaicorp.docdrop.store-contract": "go-json-v1",
-                  "io.kaicorp.docdrop.rollback-image": oci.ROLLBACK}
-        self.config = self.put({"architecture": "amd64", "os": "linux", "config": {"Labels": labels}})
-        layer = self.put(b"synthetic layer")
-        runtime = self.put({"config": self.config, "layers": [layer]})
-        attestation = self.put({"config": self.put({}), "layers": [
-            self.put({"predicateType": "https://slsa.dev/provenance/v0.2"}),
-            self.put({"predicateType": "https://spdx.dev/Document"})]})
-        runtime["platform"] = {"architecture": "amd64", "os": "linux"}
-        attestation["platform"] = {"architecture": "unknown", "os": "unknown"}
-        attestation["annotations"] = {"vnd.docker.reference.type": "attestation-manifest"}
-        self.root = {"mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [runtime, attestation]}
+        self.layout = Path(self.tmp.name) / "amd64"
+        self.config, self.root, self.root_digest, self.put_fn = make_layout(self.layout, "amd64")
 
     def put(self, value):
-        data = value if isinstance(value, bytes) else json.dumps(value).encode()
-        digest = hashlib.sha256(data).hexdigest()
-        (self.layout / "blobs/sha256" / digest).write_bytes(data)
-        return {"digest": "sha256:" + digest, "size": len(data)}
+        return self.put_fn(value)
 
-    def verify(self, root=None, expected=None, source=SOURCE):
+    def verify(self, root=None, expected=None, source=SOURCE, expected_arches=("amd64",)):
         raw = json.dumps(root or self.root).encode()
         with patch.object(oci, "command", return_value=raw):
-            return oci.verify(self.layout, expected or "sha256:" + hashlib.sha256(raw).hexdigest(), source)
+            return oci.verify(self.layout, expected or "sha256:" + hashlib.sha256(raw).hexdigest(), source, expected_arches=expected_arches)
 
     def test_valid_graph_returns_exact_runtime_config_id(self):
         self.assertEqual(self.verify(), self.config["digest"])
@@ -69,6 +95,26 @@ class OCITests(unittest.TestCase):
         root["manifests"].pop()
         with self.assertRaises(oci.Refused):
             self.verify(root)
+
+    def test_merge_combines_amd64_and_arm64_and_rejects_tampering(self):
+        arm_layout = Path(self.tmp.name) / "arm64"
+        arm_cfg, _, arm_digest, _ = make_layout(arm_layout, "arm64")
+        out_layout = Path(self.tmp.name) / "merged"
+        with patch.object(oci, "command", side_effect=fake_inspect):
+            merged_digest = oci.merge(self.layout, self.root_digest, arm_layout, arm_digest, SOURCE, out_layout)
+            ids = oci.verify(out_layout, merged_digest, SOURCE, expected_arches=("amd64", "arm64"))
+            self.assertEqual(ids, f"{self.config['digest']},{arm_cfg['digest']}")
+            # Single-arch layout must fail default multi-arch verify
+            with self.assertRaises(oci.Refused):
+                oci.verify(self.layout, self.root_digest, SOURCE)
+            # Duplicate arch or stripped arm64 attestation must fail
+            m_root = json.loads((out_layout / "blobs/sha256" / merged_digest.split(":")[1]).read_text())
+            bad_no_att = copy.deepcopy(m_root)
+            bad_no_att["manifests"].pop()
+            raw_bad = json.dumps(bad_no_att).encode()
+            with patch.object(oci, "command", return_value=raw_bad):
+                with self.assertRaises(oci.Refused):
+                    oci.verify(out_layout, "sha256:" + hashlib.sha256(raw_bad).hexdigest(), SOURCE)
 
     def test_external_descriptors_and_symlinks_are_rejected(self):
         descriptor = dict(self.config, urls=["https://example.invalid/config"])

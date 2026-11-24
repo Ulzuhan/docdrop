@@ -130,6 +130,7 @@ descuido del port: es lo que hace 2.3.1, y las suites lo comprueban. Igual con
 - Cookie temporal de login `docdrop_oidc`, escapada como componente de URL.
 - Revocación por `revocaciones.json`, podada a 25 h. Si no se puede escribir,
   **503**.
+- Con `DOCDROP_OIDC_REQUIRED_GROUP`, el canje OIDC exige además que el access token ES256 contenga ese grupo (verificado contra JWKS).
 
 ## 5. Cifrado de punta a punta
 

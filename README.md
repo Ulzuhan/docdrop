@@ -64,7 +64,7 @@ and the no-payload-backup policy.
 
 ### Development and building
 
-Build prerequisites: **Go 1.27.1**, **Node 22+** and npm. Node only builds the
+Build prerequisites: **Go 1.27.4**, **Node 22+** and npm. Node only builds the
 frontend or runs test tooling; React executes in the user's browser.
 
 ```bash
