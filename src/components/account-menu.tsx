@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, ExternalLink, LogOut } from "lucide-react";
+import { ChevronDown, ExternalLink, LayoutGrid, LogOut } from "lucide-react";
 import { signOut } from "@/lib/api";
 
 /**
@@ -12,6 +12,14 @@ export function AccountMenu({ email, accountUrl }: { email: string; accountUrl: 
   const [leaving, setLeaving] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const shown = email.split("@")[0] || email;
+  const toolsUrl = (() => {
+    if (!accountUrl) return null;
+    try {
+      return new URL("/", accountUrl).toString();
+    } catch {
+      return null;
+    }
+  })();
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +77,12 @@ export function AccountMenu({ email, accountUrl }: { email: string; accountUrl: 
             </p>
           </div>
           <div className="menu-sep" />
+          {toolsUrl && (
+            <a role="menuitem" className="menu-item" href={toolsUrl}>
+              <LayoutGrid aria-hidden />
+              Your tools
+            </a>
+          )}
           {accountUrl && (
             <a role="menuitem" className="menu-item" href={accountUrl} target="_blank" rel="noreferrer">
               <ExternalLink aria-hidden />
