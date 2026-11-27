@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.4
+
+- Refresh compatible frontend/build dependencies and CI pins; the Go HTTP and
+  `go-json-v1` store formats are unchanged.
+- Test the gated runtime on both native architectures against signed DocDrop
+  3.1.3, reopening the current synthetic store without restoring snapshots.
+  Retain the separate legacy Node compatibility check on AMD64.
+
 ## 3.1.1 — 2026-10-03
 
 - Publish the exact linux/amd64 OCI artifact only after the release tag's
