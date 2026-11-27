@@ -1,5 +1,5 @@
 name: Build and verify one DocDrop OCI artifact
-description: One native-arch build, exact runtime suites, rollback pairs (amd64) and unchanged Trivy gate; never publishes
+description: One native-arch build, exact runtime suites, Go rollback pair (both architectures), Node pair (amd64) and unchanged Trivy gate; never publishes
 inputs:
   arch:
     description: Target CPU architecture (amd64 or arm64)
@@ -90,9 +90,10 @@ runs:
         DOCDROP_TEST_LAUNCH: scripts/lanzar-imagen.sh
         DOCDROP_RED_HOST: '1'
       run: bash scripts/test-compatibilidad.sh
-    - if: inputs.arch == 'amd64'
-      name: Reviewed Go rollback release against the gated image
+    - name: Reviewed Go rollback release against the gated image
       shell: bash
+      env:
+        DOCDROP_EXPECTED_ARCH: ${{ inputs.arch }}
       run: bash scripts/test-rollback-imagen.sh
     - name: Runtime is uid 1001 and has no Node
       shell: bash

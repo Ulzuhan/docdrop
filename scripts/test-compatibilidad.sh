@@ -35,6 +35,7 @@ WORK="$(mktemp -d)"
 export DOCDROP_DATA_DIR="$WORK/datos"
 export ESTADO="$WORK/estado.json"
 mkdir -p "$DOCDROP_DATA_DIR"
+export DOCDROP_CONTENEDOR="docdrop-candidato-$(basename "$WORK")"
 LOG="$WORK/servidor.log"
 
 contenedor=""
@@ -42,7 +43,7 @@ proceso=""
 
 parar() {
   if [ -n "$contenedor" ]; then
-    docker rm -f "$contenedor" >/dev/null 2>&1
+    docker rm -f "$contenedor" >/dev/null 2>&1 || return 1
     contenedor=""
   fi
   if [ -n "$proceso" ]; then
@@ -50,13 +51,26 @@ parar() {
     wait "$proceso" 2>/dev/null
     proceso=""
   fi
+  if [ "${DOCDROP_ROLLBACK_ESTRICTO:-}" = 1 ]; then
+    local nombres
+    nombres=$(docker ps -a --format '{{.Names}}') || return 1
+    ! grep -Fxq "$DOCDROP_CONTENEDOR" <<<"$nombres" || return 1
+  fi
+  local escucha
   for _ in $(seq 1 40); do
-    ss -tln 2>/dev/null | grep -qE ":$PUERTO " || return 0
+    escucha=$(ss -H -tln "sport = :$PUERTO" 2>/dev/null) || return 1
+    [ -z "$escucha" ] && return 0
     sleep 0.25
   done
-  echo "aviso: el puerto $PUERTO sigue ocupado"
+  echo "el puerto $PUERTO sigue ocupado" >&2
+  return 1
 }
-limpiar() { parar; rm -rf "$WORK"; }
+limpiar() {
+  # If removing the writer fails, retain its test store rather than deleting
+  # files which a potentially live process still holds.
+  parar || return 1
+  rm -rf -- "$WORK"
+}
 trap 'limpiar; exit 130' INT TERM
 
 esperar() {
@@ -68,7 +82,7 @@ esperar() {
 }
 
 arrancar_node() {
-  contenedor="docdrop-compat-$$"
+  contenedor="docdrop-anterior-$(basename "$WORK")"
   docker run -d --name "$contenedor" \
     --user "$(id -u):$(id -g)" \
     -p "127.0.0.1:$PUERTO:3010" \
@@ -113,14 +127,14 @@ turno() {
   if [ "$que" = node ]; then arrancar_node || { fallo=1; return 1; }
   else arrancar_go || { fallo=1; return 1; }; fi
   node scripts/test-compatibilidad.mjs "$fase" || fallo=1
-  parar
+  parar || { fallo=1; return 1; }
 }
 
 turno node sembrar-node   || { limpiar; exit 1; }
 turno go   comprobar-go   || { limpiar; exit 1; }
 turno node comprobar-node || { limpiar; exit 1; }
 
-limpiar
+limpiar || exit 1
 echo
 if [ $fallo -ne 0 ]; then echo "HAY FALLOS"; exit 1; fi
 echo "compatibilidad verde en los dos sentidos"
